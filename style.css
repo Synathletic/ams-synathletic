@@ -70,6 +70,8 @@ th { background: var(--bleu-clair); }
 .tuile { background: var(--bleu-clair); border-radius: 12px; padding: 14px; text-align: center; font-weight: 700; color: var(--bleu); }
 .tuile small { display: block; font-weight: 400; color: var(--gris); }
 .tuile.bientot { opacity: .6; }
+button.tuile { border: 2px solid var(--bleu); cursor: pointer; font-size: 1rem; font-family: inherit; }
+button.tuile:active { background: #d6e0fa; }
 .message { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); max-width: 536px; margin: 0 auto; padding: 14px 16px; border-radius: 12px; color: #fff; font-weight: 600; z-index: 50; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
 .message.erreur { background: var(--rouge); }
 .message.succes { background: var(--vert); }
@@ -78,3 +80,19 @@ th { background: var(--bleu-clair); }
 .chargement { text-align: center; color: var(--gris); padding: 40px 0; }
 .signature { text-align: center; color: var(--gris); font-size: .8rem; margin: 24px 0 8px; }
 @media (prefers-reduced-motion: no-preference) { .btn { transition: transform .1s; } .btn:active { transform: scale(.98); } }
+
+textarea { width: 100%; padding: 12px; font-size: 1rem; font-family: inherit; border: 1px solid var(--bord); border-radius: 10px; }
+textarea:focus { outline: 3px solid var(--orange); outline-offset: 1px; }
+.barre-titre { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.barre-titre h1 { margin: 0; }
+.btn-retour { background: #fff; border: 1px solid var(--bord); color: var(--bleu); border-radius: 999px; padding: 8px 14px; font-weight: 700; cursor: pointer; }
+.bloc-echelle { margin: 16px 0; }
+.question { font-weight: 600; margin: 0 0 8px; }
+.echelle { display: flex; gap: 6px; }
+.pastille { flex: 1; min-width: 0; padding: 12px 0; font-size: 1.05rem; font-weight: 700; border: 2px solid var(--bord); background: #fff; color: var(--bleu); border-radius: 10px; cursor: pointer; }
+.pastille.choisi { background: var(--bleu); border-color: var(--bleu); color: #fff; }
+.extremes { display: flex; justify-content: space-between; gap: 8px; font-size: .78rem; color: var(--gris); margin-top: 4px; }
+.bloc-cycle { margin-top: 22px; padding-top: 6px; border-top: 2px dashed var(--bord); }
+.resume-charge { font-weight: 700; color: var(--bleu); background: var(--bleu-clair); border-radius: 10px; padding: 10px 12px; margin: 10px 0; }
+.resume-charge:empty { display: none; }
+.liste { margin: 0 0 8px; padding-left: 20px; font-size: .92rem; }

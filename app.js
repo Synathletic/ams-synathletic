@@ -1,5 +1,5 @@
-// AMS Syn'Athlétic : étape 2
-// Connexion / inscription, avertissement de santé + consentement, accueil.
+// AMS Syn'Athlétic : étape 3
+// Connexion, consentement, accueil, bien-être du matin, saisie de séance (RPE) et historique.
 // Signé Syn'Athlétic / Alexandre GERBER
 "use strict";
 
@@ -228,17 +228,24 @@ function ecranAccueil(profil) {
     el("h1", { text: "Bonjour " + (profil.nom ? profil.nom.split(" ")[0] : "") }),
     el("span", { class: "badge" + (estStaff ? " badge-staff" : ""), text: estStaff ? "Staff" : "Athlète" }),
     el("p", { class: "petit", text: estStaff
-      ? " Tu verras ici le tableau de bord de tous les athlètes (étape 6)."
-      : " Ici tu saisiras ton bien-être du matin et tes séances (étape 3)." })
+      ? " Le tableau de bord de tous les athlètes arrive à l'étape 6. Tu peux déjà saisir tes propres données."
+      : " Saisis ton bien-être du matin et tes séances ci-dessous." })
   ]);
 
+  const tuile = (titre, sous, action) => action
+    ? el("button", { class: "tuile", type: "button", onclick: action }, [titre, el("small", { text: sous })])
+    : el("div", { class: "tuile bientot" }, [titre, el("small", { text: sous })]);
   const tuiles = el("section", { class: "carte" }, [
-    el("h2", { text: "Fonctions à venir" }),
+    el("h2", { text: "Ma saisie" }),
     el("div", { class: "grille" }, [
-      ["Bien-être du matin", "Étape 3"], ["Séance + RPE", "Étape 3"],
-      ["ACWR et couleurs", "Étape 5"], [estStaff ? "Tableau de bord staff" : "Mon historique", "Étape 6"]
-    ].map(([t, s]) => el("div", { class: "tuile bientot" }, [t, el("small", { text: s })])))
+      tuile("Bien-être du matin", "1 minute", () => ecranBienEtre(profil)),
+      tuile("Séance + RPE", "après l'entraînement", () => ecranSeance(profil)),
+      tuile("ACWR et couleurs", "Étape 5"),
+      tuile(estStaff ? "Tableau de bord staff" : "Mon historique", "Étape 6")
+    ])
   ]);
+  const zoneHisto = el("section", { class: "carte" }, [el("h2", { text: "Mes dernières saisies" }), el("p", { class: "petit", text: "Chargement…" })]);
+  chargerHistorique(profil, zoneHisto);
 
   const reglages = el("section", { class: "carte" }, [el("h2", { text: "Mes réglages et mes droits" })]);
 
@@ -277,9 +284,217 @@ function ecranAccueil(profil) {
     btnRetrait
   );
 
-  racine.append(carteBienvenue, tuiles, reglages,
+  racine.append(carteBienvenue, tuiles, zoneHisto, reglages,
     el("div", { class: "avertissement", text: "Cet outil sert au suivi de l'entraînement. Il ne remplace pas un avis médical : en cas de douleur ou de symptôme inquiétant, consulte un professionnel de santé." }),
     el("p", { class: "signature", text: "Syn'Athlétic / Alexandre GERBER" }));
+}
+
+/* ---------- Saisie : outils communs ---------- */
+
+// Date locale au format AAAA-MM-JJ (et non UTC, pour ne pas décaler la journée)
+function dateLocale(d = new Date()) {
+  const p = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+}
+function dateFr(iso) { const [a, m, j] = iso.split("-"); return j + "/" + m + "/" + a; }
+
+// Échelle de 1 à N avec un libellé aux deux extrémités ; renvoie { noeud, valeur() }
+function echelle(id, question, texteBas, texteHaut, max = 5) {
+  let valeur = null;
+  const boutons = [];
+  const rangee = el("div", { class: "echelle", role: "radiogroup", "aria-label": question });
+  for (let i = 1; i <= max; i++) {
+    const b = el("button", { type: "button", class: "pastille", role: "radio", "aria-checked": "false", text: String(i) });
+    b.addEventListener("click", () => {
+      valeur = i;
+      boutons.forEach((x, k) => { x.setAttribute("aria-checked", String(k + 1 === i)); x.classList.toggle("choisi", k + 1 === i); });
+    });
+    boutons.push(b); rangee.append(b);
+  }
+  const noeud = el("div", { class: "bloc-echelle", id }, [
+    el("p", { class: "question", text: question }), rangee,
+    el("div", { class: "extremes" }, [el("span", { text: "1 = " + texteBas }), el("span", { text: max + " = " + texteHaut })])
+  ]);
+  return { noeud, valeur: () => valeur };
+}
+
+function enTete(titre, retour) {
+  return el("div", { class: "barre-titre" }, [
+    el("button", { type: "button", class: "btn-retour", text: "← Retour", onclick: retour }),
+    el("h1", { text: titre })
+  ]);
+}
+
+/* ---------- Écran : bien-être du matin ---------- */
+function ecranBienEtre(profil) {
+  racine.replaceChildren();
+  const E = {
+    sommeil: echelle("e-sommeil", "Comment as-tu dormi ?", "très mal", "très bien"),
+    energie: echelle("e-energie", "Ton niveau d'énergie ce matin ?", "épuisé(e)", "plein(e) d'énergie"),
+    douleurs: echelle("e-douleurs", "Douleurs ou courbatures ?", "très douloureux", "aucune douleur"),
+    stress: echelle("e-stress", "Ton niveau de stress ?", "très stressé(e)", "aucun stress"),
+    humeur: echelle("e-humeur", "Ton humeur ?", "très mauvaise", "très bonne")
+  };
+  const champDate = el("input", { type: "date", id: "date-be", value: dateLocale(), max: dateLocale() });
+  const commentaire = el("textarea", { id: "com-be", maxlength: "500", rows: "3", placeholder: "Facultatif : une douleur précise, un souci particulier…" });
+  const form = el("form", { class: "carte", novalidate: "" }, [
+    el("p", { class: "petit", text: "5 = le mieux sur toutes les échelles. Réponds spontanément." }),
+    el("label", { for: "date-be", text: "Date" }), champDate,
+    ...Object.values(E).map((x) => x.noeud),
+    el("label", { for: "com-be", text: "Commentaire" }), commentaire
+  ]);
+
+  // Question sur le cycle : uniquement pour les femmes, entièrement facultative
+  let phase = null, gene = null;
+  if (profil.sexe === "F") {
+    const selPhase = el("select", { id: "phase" }, [
+      ["", "Je ne réponds pas aujourd'hui"], ["regles", "Pendant mes règles"], ["folliculaire", "Après les règles (phase folliculaire)"],
+      ["ovulation", "Autour de l'ovulation"], ["luteale", "Avant les règles (phase lutéale)"], ["je_ne_sais_pas", "Je ne sais pas"]
+    ].map(([v, t]) => el("option", { value: v, text: t })));
+    phase = selPhase;
+    gene = echelle("e-gene", "Gêne liée au cycle (crampes, fatigue, etc.) ?", "très gênant", "aucune gêne");
+    form.append(el("div", { class: "bloc-cycle" }, [
+      el("h2", { text: "Cycle menstruel (facultatif)" }),
+      el("p", { class: "petit", text: profil.partage_cycle_staff
+        ? "Tu as choisi de partager cette information avec le staff." : "Cette information reste privée : le staff ne la voit pas (réglable sur l'accueil)." }),
+      el("label", { for: "phase", text: "Où en es-tu ?" }), selPhase, gene.noeud
+    ]));
+  }
+  const bouton = el("button", { class: "btn", type: "submit", text: "Enregistrer" });
+  form.append(bouton);
+
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    for (const [nom, x] of Object.entries(E)) if (!x.valeur()) return afficherMessage("Réponds à toutes les échelles (" + nom + ").", "erreur");
+    const date = champDate.value || dateLocale();
+    bouton.disabled = true;
+    try {
+      const { error } = await sb.from("bien_etre").upsert({
+        athlete_id: profil.id, date,
+        sommeil: E.sommeil.valeur(), energie: E.energie.valeur(), douleurs: E.douleurs.valeur(),
+        stress: E.stress.valeur(), humeur: E.humeur.valeur(),
+        commentaire: commentaire.value.trim() || null
+      }, { onConflict: "athlete_id,date" });
+      if (error) throw error;
+      if (phase && phase.value) {
+        const { error: e2 } = await sb.from("cycle_menstruel").upsert({
+          athlete_id: profil.id, date, phase: phase.value, gene_symptomes: gene.valeur()
+        }, { onConflict: "athlete_id,date" });
+        if (e2) throw e2;
+      }
+      afficherMessage("Bien-être enregistré. Bonne séance !", "succes");
+      await demarrer();
+    } catch (err) {
+      afficherMessage(messageErreur(err), "erreur");
+      bouton.disabled = false;
+    }
+  });
+  racine.append(enTete("Bien-être du matin", demarrer), form);
+  window.scrollTo(0, 0);
+}
+
+/* ---------- Écran : séance + RPE ---------- */
+const CATEGORIES_ATHLE = [
+  ["acceleration", "Accélération"], ["vitesse_max", "Vitesse max"], ["endurance_vitesse_rythmique", "Endurance vitesse / rythmique"],
+  ["specifique", "Spécifique"], ["technique_sprint", "Technique sprint"], ["technique_haies", "Technique haies"],
+  ["force_max", "Force max"], ["force_explosive", "Force explosive"], ["puissance", "Puissance"],
+  ["endurance_force", "Endurance de force"], ["endurance_fondamentale", "Endurance fondamentale"], ["tempo_extensif", "Tempo extensif"],
+  ["prevention_blessures", "Prévention des blessures"], ["mobilite_souplesse", "Mobilité / souplesse"],
+  ["match_competition", "Compétition"], ["recuperation", "Récupération"], ["autre", "Autre"]
+];
+const CATEGORIES_AUTRES = [
+  ["vitesse", "Vitesse"], ["endurance", "Endurance"], ["force", "Force"], ["souplesse", "Souplesse"],
+  ["coordination", "Coordination"], ["technique_tactique", "Technique / tactique"], ["match_competition", "Match / compétition"],
+  ["recuperation", "Récupération"], ["autre", "Autre"]
+];
+const TEXTE_RPE = ["", "Très facile", "Facile", "Modéré", "Un peu dur", "Dur", "Dur+", "Très dur", "Très très dur", "Presque max", "Maximal"];
+
+function ecranSeance(profil) {
+  racine.replaceChildren();
+  const selSport = el("select", { id: "sport-s" }, [
+    ["athletisme", "Athlétisme"], ["football", "Football"], ["handball", "Handball"], ["basketball", "Basketball"], ["autre", "Autre sport"]
+  ].map(([v, t]) => el("option", { value: v, text: t })));
+  selSport.value = profil.sport_principal || "athletisme";
+  const selCat = el("select", { id: "cat-s" });
+  const champVolume = el("input", { id: "vol-s", type: "number", inputmode: "numeric", min: "0", max: "100000", step: "10", placeholder: "Ex : 600" });
+  const blocVolume = el("div", {}, [el("label", { for: "vol-s", text: "Volume de course en mètres (facultatif)" }), champVolume]);
+  function majCategories() {
+    const liste = selSport.value === "athletisme" ? CATEGORIES_ATHLE : CATEGORIES_AUTRES;
+    selCat.replaceChildren(el("option", { value: "", text: "Choisis…" }), ...liste.map(([v, t]) => el("option", { value: v, text: t })));
+    blocVolume.classList.toggle("cache", selSport.value !== "athletisme");
+  }
+  selSport.addEventListener("change", majCategories);
+  majCategories();
+
+  const champDate = el("input", { type: "date", id: "date-s", value: dateLocale(), max: dateLocale() });
+  const champDuree = el("input", { id: "duree-s", type: "number", inputmode: "numeric", min: "1", max: "480", placeholder: "Ex : 90" });
+  const rpe = echelle("e-rpe", "Effort ressenti (RPE) : à quel point la séance était-elle dure ?", "très facile", "maximal", 10);
+  const aideRpe = el("p", { class: "petit", text: "Choisis une note de 1 à 10." });
+  rpe.noeud.querySelectorAll(".pastille").forEach((b, k) => b.addEventListener("click", () => { aideRpe.textContent = (k + 1) + " : " + TEXTE_RPE[k + 1]; maj(); }));
+  const commentaire = el("textarea", { id: "com-s", maxlength: "500", rows: "3", placeholder: "Facultatif : contenu, sensations, incident…" });
+  const resume = el("div", { class: "resume-charge" });
+  function maj() {
+    const d = parseInt(champDuree.value, 10), r = rpe.valeur();
+    resume.textContent = d > 0 && r ? "Charge de la séance : " + (d * r) + " UA (durée × RPE)" : "";
+  }
+  champDuree.addEventListener("input", maj);
+
+  const bouton = el("button", { class: "btn", type: "submit", text: "Enregistrer la séance" });
+  const form = el("form", { class: "carte", novalidate: "" }, [
+    el("label", { for: "date-s", text: "Date" }), champDate,
+    el("label", { for: "sport-s", text: "Sport" }), selSport,
+    el("label", { for: "cat-s", text: "Type de séance" }), selCat,
+    el("label", { for: "duree-s", text: "Durée totale (minutes)" }), champDuree,
+    blocVolume, rpe.noeud, aideRpe, resume,
+    el("label", { for: "com-s", text: "Commentaire" }), commentaire, bouton
+  ]);
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const duree = parseInt(champDuree.value, 10);
+    if (!selCat.value) return afficherMessage("Choisis le type de séance.", "erreur");
+    if (!(duree >= 1 && duree <= 480)) return afficherMessage("Durée : entre 1 et 480 minutes.", "erreur");
+    if (!rpe.valeur()) return afficherMessage("Choisis ton effort ressenti (RPE).", "erreur");
+    let volume = null;
+    if (selSport.value === "athletisme" && champVolume.value !== "") {
+      volume = parseInt(champVolume.value, 10);
+      if (!(volume >= 0 && volume <= 100000)) return afficherMessage("Volume de course : entre 0 et 100000 m.", "erreur");
+    }
+    bouton.disabled = true;
+    try {
+      const { error } = await sb.from("seances").insert({
+        athlete_id: profil.id, date: champDate.value || dateLocale(), sport: selSport.value, categorie: selCat.value,
+        duree_min: duree, rpe: rpe.valeur(), volume_course_m: volume, commentaire: commentaire.value.trim() || null
+      });
+      if (error) throw error;
+      afficherMessage("Séance enregistrée (" + (duree * rpe.valeur()) + " UA).", "succes");
+      await demarrer();
+    } catch (err) {
+      afficherMessage(messageErreur(err), "erreur");
+      bouton.disabled = false;
+    }
+  });
+  racine.append(enTete("Séance + RPE", demarrer), form);
+  window.scrollTo(0, 0);
+}
+
+/* ---------- Historique personnel (7 dernières saisies de chaque type) ---------- */
+async function chargerHistorique(profil, zone) {
+  try {
+    const [be, se] = await Promise.all([
+      sb.from("bien_etre").select("date, score_total").eq("athlete_id", profil.id).order("date", { ascending: false }).limit(7),
+      sb.from("seances").select("date, categorie, duree_min, rpe, charge_ua").eq("athlete_id", profil.id).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(7)
+    ]);
+    if (be.error) throw be.error;
+    if (se.error) throw se.error;
+    const nomCat = Object.fromEntries([...CATEGORIES_ATHLE, ...CATEGORIES_AUTRES]);
+    const lignes = (titre, items, rendu) => [el("h3", { text: titre }),
+      items.length ? el("ul", { class: "liste" }, items.map((x) => el("li", { text: rendu(x) }))) : el("p", { class: "petit", text: "Rien pour l'instant." })];
+    zone.replaceChildren(el("h2", { text: "Mes dernières saisies" }),
+      ...lignes("Bien-être (score sur 25)", be.data, (x) => dateFr(x.date) + " : " + x.score_total + "/25"),
+      ...lignes("Séances", se.data, (x) => dateFr(x.date) + " : " + (nomCat[x.categorie] || x.categorie) + ", " + x.duree_min + " min, RPE " + x.rpe + " = " + x.charge_ua + " UA"));
+  } catch (err) {
+    zone.replaceChildren(el("h2", { text: "Mes dernières saisies" }), el("p", { class: "petit", text: messageErreur(err) }));
+  }
 }
 
 /* ---------- Démarrage : choisit l'écran selon la session ---------- */
