@@ -1,5 +1,6 @@
-// AMS Syn'Athlétic : étape 3
-// Connexion, consentement, accueil, bien-être du matin, saisie de séance (RPE) et historique.
+// AMS Syn'Athlétic : étape 4
+// Connexion, consentement, accueil, bien-être du matin, saisie de séance (RPE), historique
+// et saisie hors connexion (file d'attente locale envoyée au retour du réseau).
 // Signé Syn'Athlétic / Alexandre GERBER
 "use strict";
 
@@ -53,6 +54,112 @@ function messageErreur(err) {
 }
 
 function emailValide(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v); }
+
+/* ---------- Saisie hors connexion : file d'attente locale ---------- */
+// Si le réseau manque, la saisie est gardée sur le téléphone puis envoyée automatiquement.
+const CLE_FILE = "ams_file_attente_v1";
+const CLE_ECHECS = "ams_echecs_v1";
+const CLE_PROFIL = "ams_profil_cache_v1";
+
+function lire(cle, defaut) {
+  try { const v = JSON.parse(localStorage.getItem(cle)); return v === null || v === undefined ? defaut : v; } catch (e) { return defaut; }
+}
+function ecrire(cle, v) {
+  try { localStorage.setItem(cle, JSON.stringify(v)); return true; } catch (e) { return false; }
+}
+function erreurReseau(err) {
+  const m = (err && err.message ? err.message : "").toLowerCase();
+  return !navigator.onLine || m.includes("fetch") || m.includes("network") || m.includes("load failed");
+}
+function nouvelId() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  const o = crypto.getRandomValues(new Uint8Array(16));
+  o[6] = (o[6] & 0x0f) | 0x40; o[8] = (o[8] & 0x3f) | 0x80;
+  const h = [...o].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return h.slice(0, 8) + "-" + h.slice(8, 12) + "-" + h.slice(12, 16) + "-" + h.slice(16, 20) + "-" + h.slice(20);
+}
+function nbEnAttente(userId) { return lire(CLE_FILE, []).filter((x) => x.valeur.athlete_id === userId).length; }
+
+// Envoi d'une ligne. Séances : insertion avec identifiant fixé par le téléphone, donc un renvoi ne crée pas de doublon.
+async function envoyerLigne(table, valeur, onConflict) {
+  const { error } = onConflict === "id"
+    ? await sb.from(table).insert(valeur)
+    : await sb.from(table).upsert(valeur, { onConflict });
+  if (error && error.code !== "23505") throw error; // 23505 = déjà enregistrée : c'est bon
+}
+
+// Enregistre en ligne, sinon met en file d'attente. Renvoie "envoye" ou "en_attente".
+async function enregistrer(table, valeur, onConflict) {
+  try {
+    await envoyerLigne(table, valeur, onConflict);
+    return "envoye";
+  } catch (err) {
+    if (!erreurReseau(err)) throw err;
+    const cles = onConflict.split(",");
+    // Une saisie plus récente du même jour remplace la précédente en attente
+    const file = lire(CLE_FILE, []).filter((x) => !(x.table === table && cles.every((c) => x.valeur[c] === valeur[c])));
+    file.push({ qid: nouvelId(), table, valeur, onConflict });
+    if (!ecrire(CLE_FILE, file)) throw new Error("Mémoire du téléphone pleine : libère de la place.");
+    return "en_attente";
+  }
+}
+
+let synchroEnCours = false;
+async function synchroniser() {
+  if (!sb || synchroEnCours || !navigator.onLine || !lire(CLE_FILE, []).length) return;
+  synchroEnCours = true;
+  let envoyes = 0, refuses = 0;
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return;
+    const traites = new Set();
+    for (const it of lire(CLE_FILE, [])) {
+      if (it.valeur.athlete_id !== session.user.id) continue;
+      try {
+        await envoyerLigne(it.table, it.valeur, it.onConflict);
+        traites.add(it.qid); envoyes++;
+      } catch (err) {
+        if (erreurReseau(err)) break; // le réseau a de nouveau coupé : on réessaiera
+        traites.add(it.qid); refuses++;
+        const echecs = lire(CLE_ECHECS, []);
+        echecs.push({ ...it, motif: String(err.message || "").slice(0, 120) });
+        ecrire(CLE_ECHECS, echecs);
+      }
+    }
+    // On relit la file : une saisie ajoutée pendant l'envoi n'est pas perdue
+    ecrire(CLE_FILE, lire(CLE_FILE, []).filter((x) => !traites.has(x.qid)));
+  } catch (e) { /* nouvel essai au prochain passage */ }
+  finally { synchroEnCours = false; }
+  if (envoyes) afficherMessage(envoyes + " saisie(s) envoyée(s) au serveur.", "succes");
+  if (refuses) afficherMessage(refuses + " saisie(s) refusée(s) par le serveur.", "erreur");
+  if ((envoyes || refuses) && document.getElementById("zone-attente")) demarrer();
+}
+
+// Bloc affiché sur l'accueil : saisies en attente et saisies refusées
+function zoneAttente(profil) {
+  const z = el("div", { id: "zone-attente" });
+  const n = nbEnAttente(profil.id);
+  if (n) {
+    z.append(el("div", { class: "avertissement" }, [
+      n + " saisie(s) en attente : enregistrée(s) sur ce téléphone, envoi automatique dès que le réseau revient.",
+      el("button", { class: "btn btn-secondaire", type: "button", text: "Envoyer maintenant", onclick: () => {
+        if (!navigator.onLine) return afficherMessage("Toujours pas de réseau.", "info");
+        synchroniser();
+      } })
+    ]));
+  }
+  const echecs = lire(CLE_ECHECS, []).filter((x) => x.valeur.athlete_id === profil.id);
+  if (echecs.length) {
+    z.append(el("div", { class: "alerte-rouge" }, [
+      echecs.length + " saisie(s) n'ont pas pu être enregistrées (données refusées par le serveur). Refais-les si besoin.",
+      el("button", { class: "btn btn-secondaire", type: "button", text: "Effacer ce message", onclick: () => {
+        ecrire(CLE_ECHECS, lire(CLE_ECHECS, []).filter((x) => x.valeur.athlete_id !== profil.id));
+        demarrer();
+      } })
+    ]));
+  }
+  return z;
+}
 
 /* ---------- Texte de l'avertissement de santé (affiché avant consentement) ---------- */
 function blocAvertissement() {
@@ -284,7 +391,7 @@ function ecranAccueil(profil) {
     btnRetrait
   );
 
-  racine.append(carteBienvenue, tuiles, zoneHisto, reglages,
+  racine.append(carteBienvenue, zoneAttente(profil), tuiles, zoneHisto, reglages,
     el("div", { class: "avertissement", text: "Cet outil sert au suivi de l'entraînement. Il ne remplace pas un avis médical : en cas de douleur ou de symptôme inquiétant, consulte un professionnel de santé." }),
     el("p", { class: "signature", text: "Syn'Athlétic / Alexandre GERBER" }));
 }
@@ -369,20 +476,20 @@ function ecranBienEtre(profil) {
     const date = champDate.value || dateLocale();
     bouton.disabled = true;
     try {
-      const { error } = await sb.from("bien_etre").upsert({
+      let etat = await enregistrer("bien_etre", {
         athlete_id: profil.id, date,
         sommeil: E.sommeil.valeur(), energie: E.energie.valeur(), douleurs: E.douleurs.valeur(),
         stress: E.stress.valeur(), humeur: E.humeur.valeur(),
         commentaire: commentaire.value.trim() || null
-      }, { onConflict: "athlete_id,date" });
-      if (error) throw error;
+      }, "athlete_id,date");
       if (phase && phase.value) {
-        const { error: e2 } = await sb.from("cycle_menstruel").upsert({
+        const e2 = await enregistrer("cycle_menstruel", {
           athlete_id: profil.id, date, phase: phase.value, gene_symptomes: gene.valeur()
-        }, { onConflict: "athlete_id,date" });
-        if (e2) throw e2;
+        }, "athlete_id,date");
+        if (e2 === "en_attente") etat = "en_attente";
       }
-      afficherMessage("Bien-être enregistré. Bonne séance !", "succes");
+      if (etat === "envoye") afficherMessage("Bien-être enregistré. Bonne séance !", "succes");
+      else afficherMessage("Pas de réseau : enregistré sur ton téléphone, envoi automatique au retour du réseau.", "info");
       await demarrer();
     } catch (err) {
       afficherMessage(messageErreur(err), "erreur");
@@ -461,12 +568,12 @@ function ecranSeance(profil) {
     }
     bouton.disabled = true;
     try {
-      const { error } = await sb.from("seances").insert({
-        athlete_id: profil.id, date: champDate.value || dateLocale(), sport: selSport.value, categorie: selCat.value,
+      const etat = await enregistrer("seances", {
+        id: nouvelId(), athlete_id: profil.id, date: champDate.value || dateLocale(), sport: selSport.value, categorie: selCat.value,
         duree_min: duree, rpe: rpe.valeur(), volume_course_m: volume, commentaire: commentaire.value.trim() || null
-      });
-      if (error) throw error;
-      afficherMessage("Séance enregistrée (" + (duree * rpe.valeur()) + " UA).", "succes");
+      }, "id");
+      if (etat === "envoye") afficherMessage("Séance enregistrée (" + (duree * rpe.valeur()) + " UA).", "succes");
+      else afficherMessage("Pas de réseau : séance gardée sur ton téléphone (" + (duree * rpe.valeur()) + " UA), envoi automatique au retour du réseau.", "info");
       await demarrer();
     } catch (err) {
       afficherMessage(messageErreur(err), "erreur");
@@ -493,7 +600,7 @@ async function chargerHistorique(profil, zone) {
       ...lignes("Bien-être (score sur 25)", be.data, (x) => dateFr(x.date) + " : " + x.score_total + "/25"),
       ...lignes("Séances", se.data, (x) => dateFr(x.date) + " : " + (nomCat[x.categorie] || x.categorie) + ", " + x.duree_min + " min, RPE " + x.rpe + " = " + x.charge_ua + " UA"));
   } catch (err) {
-    zone.replaceChildren(el("h2", { text: "Mes dernières saisies" }), el("p", { class: "petit", text: messageErreur(err) }));
+    zone.replaceChildren(el("h2", { text: "Mes dernières saisies" }), el("p", { class: "petit", text: erreurReseau(err) ? "Historique indisponible sans réseau." : messageErreur(err) }));
   }
 }
 
@@ -502,14 +609,33 @@ async function demarrer() {
   if (!sb) return;
   try {
     const { data: { session } } = await sb.auth.getSession();
+    const cache = lire(CLE_PROFIL, null);
+    let profil = null;
     if (!session) {
-      boutonDeconnexion.classList.add("cache");
-      return ecranAuth();
+      // Sans réseau, la session ne peut pas être renouvelée : on ouvre le profil gardé sur le téléphone
+      if (!navigator.onLine && cache) {
+        afficherMessage("Mode hors connexion : tes saisies seront envoyées plus tard.", "info");
+        profil = cache;
+      } else {
+        boutonDeconnexion.classList.add("cache");
+        return ecranAuth();
+      }
+    } else {
+      boutonDeconnexion.classList.remove("cache");
+      try {
+        profil = await chargerProfil(session.user.id);
+        ecrire(CLE_PROFIL, profil);
+      } catch (err) {
+        if (erreurReseau(err) && cache && cache.id === session.user.id) {
+          afficherMessage("Mode hors connexion : tes saisies seront envoyées plus tard.", "info");
+          profil = cache;
+        } else throw err;
+      }
     }
     boutonDeconnexion.classList.remove("cache");
-    const profil = await chargerProfil(session.user.id);
     if (!profil.consentement_at) return ecranConsentement(profil);
     ecranAccueil(profil);
+    synchroniser();
   } catch (err) {
     racine.replaceChildren(el("div", { class: "carte" }, [
       el("h2", { text: "Impossible de charger tes données" }),
@@ -520,7 +646,10 @@ async function demarrer() {
 }
 
 boutonDeconnexion.addEventListener("click", async () => {
-  await sb.auth.signOut();
+  const cache = lire(CLE_PROFIL, null);
+  if (cache && nbEnAttente(cache.id) && !confirm("Des saisies ne sont pas encore envoyées. Elles partiront à ta prochaine connexion sur ce téléphone. Te déconnecter quand même ?")) return;
+  try { await sb.auth.signOut({ scope: "local" }); } catch (e) { /* session locale déjà effacée */ }
+  try { localStorage.removeItem(CLE_PROFIL); } catch (e) { /* sans importance */ }
   await demarrer();
 });
 
@@ -530,6 +659,9 @@ if (sb) {
     if (evenement === "SIGNED_IN" || evenement === "SIGNED_OUT") demarrer();
   });
   demarrer();
+  // Retour du réseau : envoi automatique des saisies en attente (et nouvel essai toutes les 60 s)
+  window.addEventListener("online", synchroniser);
+  setInterval(synchroniser, 60000);
 }
 
 // Service worker : permet l'installation et l'ouverture sans réseau de l'interface
