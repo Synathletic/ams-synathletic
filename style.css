@@ -117,3 +117,8 @@ details summary { cursor: pointer; color: var(--bleu); font-weight: 600; margin-
 .ligne-athlete { display: block; width: 100%; text-align: left; font: inherit; color: inherit; background: #fff; border: 1px solid var(--bord); border-left: 6px solid var(--vert); border-radius: 12px; padding: 10px 12px; margin: 8px 0; cursor: pointer; }
 .ligne-athlete.niv-orange { border-left-color: var(--orange); } .ligne-athlete.niv-rouge { border-left-color: var(--rouge); }
 .ligne-haut { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.chiffre.niv-jaune { background: #fff9db; }
+.alerte-niv.niv-jaune { border-color: var(--jaune); background: #fff9db; }
+.pastille-niv.niv-jaune { background: var(--jaune); color: #14213d; }
+.ligne-athlete.niv-jaune { border-left-color: var(--jaune); }
+:root { --jaune: #f2c200; }

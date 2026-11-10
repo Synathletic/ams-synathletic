@@ -6,12 +6,14 @@
 
 /* ---------- Seuils (repères de discussion, pas des prédictions de blessure) ---------- */
 const SEUILS = {
-  acwrVertMin: 0.8,      // en dessous : charge récente basse
+  acwrVertMin: 0.8,      // en dessous : orange (charge récente basse)
   acwrVertMax: 1.3,      // au-dessus : orange
   acwrRouge: 1.5,        // au-dessus : rouge
-  hausseHebdo: 1.3,      // semaine > 130 % de la précédente : orange
-  scoreOrange: 13,       // score de bien-être (sur 25) <= 13 : orange
-  scoreRouge: 10,        // <= 10 : rouge
+  hausseOrange: 1.1,     // charge des 7 jours entre +10 % et +30 % vs semaine précédente : orange
+  hausseRouge: 1.3,      // au-delà de +30 % : rouge (0 à +10 % : vert)
+  scoreRouge: 12,        // score de bien-être (sur 25) <= 12 : rouge
+  scoreOrange: 15,       // 13 à 15 : orange
+  scoreJaune: 19,        // 16 à 19 : jaune ; 20 et plus : vert
   douleurOrange: 2,      // douleurs (5 = aucune douleur) <= 2 : orange
   douleurRouge: 1,       // = 1 : rouge
   energieBasse: 2,       // énergie <= 2 pendant 3 saisies de suite : orange
@@ -20,7 +22,7 @@ const SEUILS = {
   minJoursHistorique: 21,// ACWR calculé seulement après 3 semaines d'historique
   fenetreJours: 120      // période chargée pour les calculs et les graphiques
 };
-const COULEURS = { vert: "#1a8a3c", orange: "#ff7f0a", rouge: "#e30613", bleu: "#4a7bd0", insuffisant: "#8a93a6" };
+const COULEURS = { vert: "#1a8a3c", jaune: "#f2c200", orange: "#ff7f0a", rouge: "#e30613", bleu: "#4a7bd0", insuffisant: "#8a93a6" };
 
 /* ---------- Dates (chaînes AAAA-MM-JJ, calculées en UTC pour éviter les décalages d'heure) ---------- */
 function partiesDate(iso) { const [a, m, j] = iso.split("-").map(Number); return [a, m - 1, j]; }
@@ -40,7 +42,13 @@ function somme(map, fin, nbJours) { let t = 0; for (let i = 0; i < nbJours; i++)
 function niveauACWR(x) {
   if (x > SEUILS.acwrRouge) return "rouge";
   if (x > SEUILS.acwrVertMax) return "orange";
-  if (x < SEUILS.acwrVertMin) return "bleu";
+  if (x < SEUILS.acwrVertMin) return "orange";
+  return "vert";
+}
+function niveauScore(v) {
+  if (v <= SEUILS.scoreRouge) return "rouge";
+  if (v <= SEUILS.scoreOrange) return "orange";
+  if (v <= SEUILS.scoreJaune) return "jaune";
   return "vert";
 }
 // ACWR = charge des 7 derniers jours ÷ charge hebdomadaire moyenne des 28 derniers jours
@@ -55,7 +63,7 @@ function acwrDuJour(map, jour, premiere) {
 function premiereDate(seances) { let p = null; for (const s of seances) if (!p || s.date < p) p = s.date; return p; }
 
 /* ---------- Alertes et pistes de décision ---------- */
-const ORDRE_NIVEAU = { rouge: 3, orange: 2, info: 1 };
+const ORDRE_NIVEAU = { rouge: 4, orange: 3, jaune: 2, info: 1 };
 function analyser(seances, bienEtres, aujourdhui) {
   const map = chargesParJour(seances);
   const a = acwrDuJour(map, aujourdhui, premiereDate(seances));
@@ -66,17 +74,22 @@ function analyser(seances, bienEtres, aujourdhui) {
   if (a.niveau === "rouge") ajouter("rouge", "acwr_haut", "ACWR très élevé : " + fr(a.acwr),
     "La charge des 7 derniers jours dépasse nettement la charge habituelle des 4 dernières semaines.",
     "Discuter d'un ajustement de la charge des 2 à 3 prochaines séances (volume ou intensité) ; vérifier sommeil, douleurs et contexte (reprise, compétition, stage). Repère à interpréter avec ton jugement, pas un diagnostic.");
-  else if (a.niveau === "orange") ajouter("orange", "acwr_moyen", "ACWR en hausse : " + fr(a.acwr),
+  else if (a.niveau === "orange" && a.acwr > 1) ajouter("orange", "acwr_moyen", "ACWR en hausse : " + fr(a.acwr),
     "La charge des 7 derniers jours est supérieure à la charge habituelle.",
     "Surveiller : éviter d'ajouter une nouvelle hausse de charge sans récupération et confirmer le plan prévu avec l'athlète.");
-  else if (a.niveau === "bleu") ajouter("info", "acwr_bas", "ACWR bas : " + fr(a.acwr),
+  else if (a.niveau === "orange") ajouter("orange", "acwr_bas", "ACWR bas : " + fr(a.acwr),
     "La charge des 7 derniers jours est inférieure à la charge habituelle.",
     "Vérifier si la baisse est voulue (affûtage, repos, absence, gêne). Une reprise trop rapide après une baisse expose à un pic de charge : prévoir une remontée progressive.");
 
-  if (precedente > 0 && a.aigue / precedente > SEUILS.hausseHebdo) ajouter("orange", "hausse",
-    "Charge de la semaine : +" + Math.round((a.aigue / precedente - 1) * 100) + " %",
-    "7 derniers jours : " + a.aigue + " UA, contre " + precedente + " UA la semaine précédente.",
-    "Vérifier que cette hausse est prévue dans la planification ; sinon, lisser la charge sur la semaine.");
+  const rapport = precedente > 0 ? a.aigue / precedente : null;
+  if (rapport !== null && rapport > SEUILS.hausseOrange) {
+    const fort = rapport > SEUILS.hausseRouge;
+    ajouter(fort ? "rouge" : "orange", fort ? "hausse_rouge" : "hausse",
+      "Charge de la semaine : +" + Math.round((rapport - 1) * 100) + " %",
+      "7 derniers jours : " + a.aigue + " UA, contre " + precedente + " UA la semaine précédente.",
+      fort ? "Hausse forte : vérifier qu'elle est voulue et envisager d'alléger les prochaines séances pour lisser la charge."
+        : "Vérifier que cette hausse est prévue dans la planification ; sinon, lisser la charge sur la semaine.");
+  }
 
   const be = [...bienEtres].sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
   const dernier = be.length ? be[be.length - 1] : null;
@@ -91,6 +104,8 @@ function analyser(seances, bienEtres, aujourdhui) {
         "Saisie du " + dateFr(dernier.date) + ".", "Échanger rapidement avec l'athlète (sommeil, stress, douleur, maladie, vie personnelle) et adapter la séance du jour si besoin.");
       else if (dernier.score_total <= SEUILS.scoreOrange) ajouter("orange", "score_orange", "Bien-être bas : " + dernier.score_total + "/25",
         "Saisie du " + dateFr(dernier.date) + ".", "Prendre des nouvelles ; si la tendance se confirme, alléger ou adapter la prochaine séance.");
+      else if (dernier.score_total <= SEUILS.scoreJaune) ajouter("jaune", "score_jaune", "Bien-être moyen : " + dernier.score_total + "/25",
+        "Saisie du " + dateFr(dernier.date) + ".", "Surveiller l'évolution sur les prochains jours ; prendre des nouvelles si la tendance baisse.");
       if (dernier.douleurs <= SEUILS.douleurRouge) ajouter("rouge", "douleur_rouge", "Douleurs importantes signalées",
         "Saisie du " + dateFr(dernier.date) + " : douleurs = " + dernier.douleurs + "/5.",
         "Interroger l'athlète sur la localisation et l'évolution ; éviter de charger la zone concernée et orienter vers un professionnel de santé si la douleur persiste ou est inhabituelle.");
@@ -114,8 +129,8 @@ function analyser(seances, bienEtres, aujourdhui) {
     }
   }
   al.sort((x, y) => ORDRE_NIVEAU[y.niveau] - ORDRE_NIVEAU[x.niveau]);
-  const niveau = al.some((x) => x.niveau === "rouge") ? "rouge" : al.some((x) => x.niveau === "orange") ? "orange" : "ok";
-  return { aujourdhui, acwr: a, charge7: a.aigue, precedente, dernier, alertes: al, niveau, map };
+  const niveau = al.some((x) => x.niveau === "rouge") ? "rouge" : al.some((x) => x.niveau === "orange") ? "orange" : al.some((x) => x.niveau === "jaune") ? "jaune" : "ok";
+  return { aujourdhui, acwr: a, charge7: a.aigue, precedente, rapport, dernier, alertes: al, niveau, map };
 }
 
 /* ---------- Séries pour les graphiques ---------- */
@@ -303,10 +318,13 @@ async function ecranSuivi(afficher, utilisateur, retour, vueStaff = false) {
   ecran.push(el("section", { class: "carte" }, [
     vueStaff ? el("p", { class: "petit", text: [afficher.groupe, afficher.sport_principal].filter(Boolean).join(" · ") }) : "",
     el("div", { class: "grille-chiffres" }, [
-      tuileChiffre("ACWR", fr(a.acwr), a.niveau === "insuffisant" ? "pas assez d'historique" : { vert: "zone habituelle", orange: "en hausse", rouge: "très élevé", bleu: "bas" }[a.niveau], a.niveau),
-      tuileChiffre("Charge 7 jours", String(an.charge7) + " UA", "semaine d'avant : " + an.precedente + " UA"),
+      tuileChiffre("ACWR", fr(a.acwr), a.niveau === "insuffisant" ? "pas assez d'historique" : a.acwr < SEUILS.acwrVertMin ? "bas" : { vert: "zone habituelle", orange: "en hausse", rouge: "très élevé" }[a.niveau], a.niveau),
+      tuileChiffre("Charge 7 jours", String(an.charge7) + " UA", "cumul des 7 derniers jours"),
+      tuileChiffre("Vs semaine d'avant", an.rapport === null ? "–" : (an.rapport >= 1 ? "+" : "") + Math.round((an.rapport - 1) * 100) + " %", "semaine d'avant : " + an.precedente + " UA",
+        an.rapport === null ? "" : an.rapport > SEUILS.hausseRouge ? "rouge" : an.rapport > SEUILS.hausseOrange ? "orange" : "vert"),
       tuileChiffre("Charge habituelle", fr(a.chronique, 0) + " UA", "moyenne par semaine sur 28 jours"),
-      tuileChiffre("Dernier bien-être", an.dernier ? an.dernier.score_total + "/25" : "–", an.dernier ? dateFr(an.dernier.date) : "aucune saisie")
+      tuileChiffre("Dernier bien-être", an.dernier ? an.dernier.score_total + "/25" : "–", an.dernier ? dateFr(an.dernier.date) : "aucune saisie", an.dernier ? niveauScore(an.dernier.score_total) : ""),
+      tuileChiffre("Douleurs", an.dernier ? an.dernier.douleurs + "/5" : "–", "5 = aucune douleur", an.dernier ? (an.dernier.douleurs <= SEUILS.douleurRouge ? "rouge" : an.dernier.douleurs <= SEUILS.douleurOrange ? "orange" : "vert") : "")
     ]),
     el("p", { class: "petit", text: "ACWR = charge des 7 derniers jours ÷ charge hebdomadaire moyenne des 28 derniers jours (charge = durée × RPE). Il faut au moins 3 semaines de saisies. Repères de discussion, pas un diagnostic ni une prédiction de blessure." })
   ]));
@@ -323,10 +341,10 @@ async function ecranSuivi(afficher, utilisateur, retour, vueStaff = false) {
   ecran.push(graphLigne("ACWR (6 dernières semaines)", serieACWR(an.map, premiere, aujourdhui), {
     min: 0, max: 2.5, graduations: [0, 0.8, 1.3, 1.5, 2.5], decimales: 2,
     bandes: [
-      { de: 0, a: 0.8, couleur: "#e4ecfb" }, { de: 0.8, a: 1.3, couleur: "#e3f4e8" },
+      { de: 0, a: 0.8, couleur: "#fff0de" }, { de: 0.8, a: 1.3, couleur: "#e3f4e8" },
       { de: 1.3, a: 1.5, couleur: "#fff0de" }, { de: 1.5, a: 2.5, couleur: "#fde3e5" }
     ]
-  }, [{ couleur: COULEURS.bleu, texte: "< 0,8 bas" }, { couleur: COULEURS.vert, texte: "0,8 à 1,3" }, { couleur: COULEURS.orange, texte: "1,3 à 1,5" }, { couleur: COULEURS.rouge, texte: "> 1,5" }]));
+  }, [{ couleur: COULEURS.orange, texte: "< 0,8 bas" }, { couleur: COULEURS.vert, texte: "0,8 à 1,3" }, { couleur: COULEURS.orange, texte: "1,3 à 1,5" }, { couleur: COULEURS.rouge, texte: "> 1,5" }]));
 
   const zoneBE = el("div");
   const selIndic = el("select", { id: "indic" }, [
@@ -335,9 +353,9 @@ async function ecranSuivi(afficher, utilisateur, retour, vueStaff = false) {
   function dessinerBE() {
     const champ = selIndic.value, total = champ === "score_total";
     zoneBE.replaceChildren(graphLigne("Bien-être (30 derniers jours)", serieBienEtre(d.be, aujourdhui, champ), total
-      ? { min: 5, max: 25, graduations: [5, 10, 15, 20, 25], decimales: 0, bandes: [{ de: 5, a: 10, couleur: "#fde3e5" }, { de: 10, a: 13, couleur: "#fff0de" }, { de: 13, a: 25, couleur: "#e3f4e8" }] }
+      ? { min: 5, max: 25, graduations: [5, 10, 15, 20, 25], decimales: 0, bandes: [{ de: 5, a: 12.5, couleur: "#fde3e5" }, { de: 12.5, a: 15.5, couleur: "#fff0de" }, { de: 15.5, a: 19.5, couleur: "#fff9db" }, { de: 19.5, a: 25, couleur: "#e3f4e8" }] }
       : { min: 1, max: 5, graduations: [1, 2, 3, 4, 5], decimales: 0, bandes: [{ de: 1, a: 2, couleur: "#fff0de" }, { de: 2, a: 5, couleur: "#e3f4e8" }] },
-      [{ couleur: COULEURS.vert, texte: "5 = le mieux" }]));
+      total ? [{ couleur: COULEURS.rouge, texte: "≤ 12" }, { couleur: COULEURS.orange, texte: "13 à 15" }, { couleur: COULEURS.jaune, texte: "16 à 19" }, { couleur: COULEURS.vert, texte: "≥ 20" }] : [{ couleur: COULEURS.vert, texte: "5 = le mieux" }]));
   }
   selIndic.addEventListener("change", dessinerBE);
   dessinerBE();
@@ -418,11 +436,13 @@ async function ecranTableauStaff(profil, forcer = false) {
   const { athletes, aujourdhui } = D;
   const rouges = athletes.filter((x) => x.analyse.niveau === "rouge").length;
   const oranges = athletes.filter((x) => x.analyse.niveau === "orange").length;
+  const jaunes = athletes.filter((x) => x.analyse.niveau === "jaune").length;
+  const sansAlerte = athletes.filter((x) => x.analyse.niveau === "ok").length;
   const sansSaisie = athletes.filter((x) => x.analyse.alertes.some((a) => a.code === "sans_saisie" || a.code === "aucune_saisie")).length;
   const tuile = (titre, v, niveau) => el("div", { class: "chiffre" + (niveau ? " niv-" + niveau : "") }, [el("small", { text: titre }), el("strong", { text: String(v) })]);
   const ecran = [enTete("Tableau de bord staff", demarrer),
     el("section", { class: "carte" }, [
-      el("div", { class: "grille-chiffres" }, [tuile("Athlètes suivis", athletes.length), tuile("Alertes rouges", rouges, rouges ? "rouge" : ""), tuile("Alertes orange", oranges, oranges ? "orange" : ""), tuile("Sans bien-être ≥ 3 j", sansSaisie)]),
+      el("div", { class: "grille-chiffres" }, [tuile("Athlètes suivis", athletes.length), tuile("Rouge", rouges, rouges ? "rouge" : ""), tuile("Orange", oranges, oranges ? "orange" : ""), tuile("Jaune", jaunes, jaunes ? "jaune" : ""), tuile("Sans alerte", sansAlerte, sansAlerte ? "vert" : ""), tuile("Sans bien-être ≥ 3 j", sansSaisie)]),
       el("p", { class: "petit", text: "Mis à jour à " + new Date(D.t).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) + ". Repères de discussion, pas des diagnostics." }),
       el("button", { class: "btn btn-secondaire", type: "button", text: "Actualiser", onclick: () => ecranTableauStaff(profil, true) })
     ])];
@@ -432,7 +452,7 @@ async function ecranTableauStaff(profil, forcer = false) {
   const selGroupe = el("select", { id: "f-groupe" }, [el("option", { value: "", text: "Tous les groupes" }), ...groupes.map((g) => el("option", { value: g, text: g }))]);
   const caseAl = el("input", { type: "checkbox", id: "f-alertes" });
   const liste = el("div");
-  const rang = { rouge: 0, orange: 1, ok: 2 };
+  const rang = { rouge: 0, orange: 1, jaune: 2, ok: 3 };
   function dessinerListe() {
     const vus = athletes.filter((x) => (!selGroupe.value || x.groupe === selGroupe.value) && (!caseAl.checked || x.analyse.niveau !== "ok"))
       .sort((x, y) => rang[x.analyse.niveau] - rang[y.analyse.niveau] || (x.nom || "").localeCompare(y.nom || "", "fr"));
@@ -464,7 +484,7 @@ async function ecranTableauStaff(profil, forcer = false) {
     return { lib: p.lib, val: e ? Math.round((e.t / e.n) * 10) / 10 : null };
   });
   ecran.push(graphLigne("Bien-être moyen du groupe (score sur 25, 30 jours)", serieCol, { min: 5, max: 25, graduations: [5, 10, 15, 20, 25], decimales: 1,
-    bandes: [{ de: 5, a: 10, couleur: "#fde3e5" }, { de: 10, a: 13, couleur: "#fff0de" }, { de: 13, a: 25, couleur: "#e3f4e8" }] }, []));
+    bandes: [{ de: 5, a: 12.5, couleur: "#fde3e5" }, { de: 12.5, a: 15.5, couleur: "#fff0de" }, { de: 15.5, a: 19.5, couleur: "#fff9db" }, { de: 19.5, a: 25, couleur: "#e3f4e8" }] }, []));
 
   // Exports collectifs
   const noms = new Map(athletes.map((x) => [x.id, x]));
