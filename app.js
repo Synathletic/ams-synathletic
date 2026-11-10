@@ -1,4 +1,4 @@
-// AMS Syn'Athlétic : étape 4
+// AMS Syn'Athlétic : étapes 4 à 6 (analyses et graphiques : voir suivi.js)
 // Connexion, consentement, accueil, bien-être du matin, saisie de séance (RPE), historique
 // et saisie hors connexion (file d'attente locale envoyée au retour du réseau).
 // Signé Syn'Athlétic / Alexandre GERBER
@@ -335,7 +335,7 @@ function ecranAccueil(profil) {
     el("h1", { text: "Bonjour " + (profil.nom ? profil.nom.split(" ")[0] : "") }),
     el("span", { class: "badge" + (estStaff ? " badge-staff" : ""), text: estStaff ? "Staff" : "Athlète" }),
     el("p", { class: "petit", text: estStaff
-      ? " Le tableau de bord de tous les athlètes arrive à l'étape 6. Tu peux déjà saisir tes propres données."
+      ? " Ouvre le tableau de bord pour suivre l'équipe. Tu peux aussi saisir tes propres données."
       : " Saisis ton bien-être du matin et tes séances ci-dessous." })
   ]);
 
@@ -347,12 +347,14 @@ function ecranAccueil(profil) {
     el("div", { class: "grille" }, [
       tuile("Bien-être du matin", "1 minute", () => ecranBienEtre(profil)),
       tuile("Séance + RPE", "après l'entraînement", () => ecranSeance(profil)),
-      tuile("ACWR et couleurs", "Étape 5"),
-      tuile(estStaff ? "Tableau de bord staff" : "Mon historique", "Étape 6")
-    ])
+      tuile("Mon suivi", "graphiques et alertes", () => ecranSuivi(profil, profil, demarrer)),
+      estStaff ? tuile("Tableau de bord", "toute l'équipe", () => ecranTableauStaff(profil)) : null
+    ].filter(Boolean))
   ]);
   const zoneHisto = el("section", { class: "carte" }, [el("h2", { text: "Mes dernières saisies" }), el("p", { class: "petit", text: "Chargement…" })]);
   chargerHistorique(profil, zoneHisto);
+  const zoneAlertes = el("div", { id: "zone-alertes" });
+  if (!estStaff) chargerAlertes(profil, zoneAlertes);
 
   const reglages = el("section", { class: "carte" }, [el("h2", { text: "Mes réglages et mes droits" })]);
 
@@ -391,7 +393,7 @@ function ecranAccueil(profil) {
     btnRetrait
   );
 
-  racine.append(carteBienvenue, zoneAttente(profil), tuiles, zoneHisto, reglages,
+  racine.append(carteBienvenue, zoneAttente(profil), zoneAlertes, tuiles, zoneHisto, reglages,
     el("div", { class: "avertissement", text: "Cet outil sert au suivi de l'entraînement. Il ne remplace pas un avis médical : en cas de douleur ou de symptôme inquiétant, consulte un professionnel de santé." }),
     el("p", { class: "signature", text: "Syn'Athlétic / Alexandre GERBER" }));
 }
