@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>AMS Syn’Athlétic</title>
+  <meta name="theme-color" content="#003087">
+  <meta name="description" content="Suivi de charge, de forme et de récupération des athlètes Syn’Athlétic.">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="AMS Syn’Athlétic">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="entete">
+    <img src="logo.png" alt="Syn’Athlétic" class="logo">
+    <span class="entete-titre">AMS</span>
+    <button id="btn-menu-deconnexion" class="btn-lien cache" type="button">Déconnexion</button>
+  </header>
+
+  <main id="app" aria-live="polite">
+    <p class="chargement">Chargement…</p>
+  </main>
+
+  <div id="message" class="message cache" role="status"></div>
+
+  <!-- Bibliothèque Supabase (chargée depuis un CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
