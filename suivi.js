@@ -264,11 +264,12 @@ async function lireTout(table, colonnes, depuis, athleteId) {
 }
 async function chargerDonneesAthlete(id) {
   const depuis = jourPlus(dateLocale(), -SEUILS.fenetreJours);
-  const [seances, be] = await Promise.all([
+  const [seances, be, tests] = await Promise.all([
     lireTout("seances", "date, sport, categorie, duree_min, rpe, charge_ua, commentaire", depuis, id),
-    lireTout("bien_etre", "date, sommeil, energie, douleurs, stress, humeur, score_total, commentaire", depuis, id)
+    lireTout("bien_etre", "date, sommeil, energie, douleurs, stress, humeur, score_total, commentaire", depuis, id),
+    lireTout("tests", "date, type_test, valeur, valeur2", depuis, id).catch(() => [])
   ]);
-  return { seances, be };
+  return { seances, be, tests };
 }
 
 /* ---------- Affichage des alertes ---------- */
@@ -285,7 +286,7 @@ function pastilleNiveau(niveau, texte) { return el("span", { class: "pastille-ni
 async function chargerAlertes(profil, zone) {
   try {
     const d = await chargerDonneesAthlete(profil.id);
-    const aujourdhui = dateLocale(), an = analyser(d.seances, d.be, aujourdhui);
+    const aujourdhui = dateLocale(), an = analyserTout(d.seances, d.be, d.tests, aujourdhui);
     const blocs = [];
     if (!an.dernier || an.dernier.date !== aujourdhui) blocs.push(el("div", { class: "avertissement", text: "Pense à saisir ton bien-être du matin." }));
     const vraies = an.alertes.filter((x) => x.code !== "aucune_saisie");
@@ -308,7 +309,7 @@ async function ecranSuivi(afficher, utilisateur, retour, vueStaff = false) {
     ]));
     return;
   }
-  const aujourdhui = dateLocale(), an = analyser(d.seances, d.be, aujourdhui), premiere = premiereDate(d.seances);
+  const aujourdhui = dateLocale(), an = analyserTout(d.seances, d.be, d.tests, aujourdhui), premiere = premiereDate(d.seances);
   const ecran = [enTete(vueStaff ? (afficher.nom || "Athlète") : "Mon suivi", retour)];
 
   // Résumé
@@ -335,6 +336,7 @@ async function ecranSuivi(afficher, utilisateur, retour, vueStaff = false) {
   for (const al of an.alertes) carteAl.append(carteAlerte(al, vueStaff));
   if (!vueStaff && an.alertes.some((x) => x.niveau !== "info")) carteAl.append(el("p", { class: "petit", text: "Si cela te préoccupe ou si une douleur dure, parles-en à ton staff ou consulte un professionnel de santé." }));
   ecran.push(carteAl);
+  ecran.push(...sectionTests(an.tests, aujourdhui, vueStaff));
 
   // Graphiques
   ecran.push(graphBarres("Charge hebdomadaire (UA, 8 semaines)", serieHebdo(an.map, aujourdhui), []));
@@ -372,7 +374,8 @@ async function ecranSuivi(afficher, utilisateur, retour, vueStaff = false) {
   const carteExport = el("section", { class: "carte" }, [el("h2", { text: "Exporter (CSV)" }),
     el("p", { class: "petit", text: "Fichiers complets (toute la période), lisibles dans Excel." }),
     boutonExport("Exporter les séances", () => exporterAthlete("seances", afficher, nomFichier("seances"))),
-    boutonExport("Exporter le bien-être", () => exporterAthlete("bien_etre", afficher, nomFichier("bien-etre")))]);
+    boutonExport("Exporter le bien-être", () => exporterAthlete("bien_etre", afficher, nomFichier("bien-etre"))),
+    boutonExport("Exporter les tests", () => exporterAthlete("tests", afficher, nomFichier("tests")))]);
   if (!vueStaff && afficher.sexe === "F") carteExport.append(boutonExport("Exporter mon cycle", () => exporterAthlete("cycle_menstruel", afficher, nomFichier("cycle"))));
   ecran.push(carteExport);
   racine.replaceChildren(...ecran);
@@ -393,10 +396,12 @@ function boutonExport(texte, action) {
 const COLONNES_EXPORT = {
   seances: [["date", "Date"], ["sport", "Sport"], ["categorie", "Type de séance"], ["duree_min", "Durée (min)"], ["rpe", "RPE"], ["charge_ua", "Charge (UA)"], ["volume_course_m", "Volume course (m)"], ["commentaire", "Commentaire"]],
   bien_etre: [["date", "Date"], ["sommeil", "Sommeil"], ["energie", "Énergie"], ["douleurs", "Douleurs"], ["stress", "Stress"], ["humeur", "Humeur"], ["score_total", "Score total"], ["commentaire", "Commentaire"]],
-  cycle_menstruel: [["date", "Date"], ["phase", "Phase"], ["gene_symptomes", "Gêne (5 = aucune)"]]
+  cycle_menstruel: [["date", "Date"], ["phase", "Phase"], ["gene_symptomes", "Gêne (5 = aucune)"]],
+  tests: [["date", "Date"], [(l) => LIB_TESTS[l.type_test] || l.type_test, "Test"], ["valeur", "Résultat (CMJ cm · RMSSD ms · sprint s)"],
+    ["valeur2", "Valeur 2 (moyenne essais · FC repos bpm)"], [(l) => UNITE_TESTS[l.type_test] || "", "Unité"], [(l) => (l.details ? JSON.stringify(l.details) : ""), "Détails"], ["commentaire", "Commentaire"]]
 };
 async function exporterAthlete(table, athlete, nom) {
-  const cols = COLONNES_EXPORT[table].map(([c]) => c).join(", ");
+  const cols = table === "tests" ? "date, type_test, valeur, valeur2, details, commentaire" : COLONNES_EXPORT[table].map(([c]) => c).join(", ");
   const lignes = await lireTout(table, cols, null, athlete.id);
   telecharger(nom, construireCsv(lignes, COLONNES_EXPORT[table]));
 }
@@ -406,17 +411,18 @@ let donneesStaff = null;
 async function chargerDonneesStaff(forcer = false) {
   if (!forcer && donneesStaff && Date.now() - donneesStaff.t < 120000) return donneesStaff;
   const depuis = jourPlus(dateLocale(), -SEUILS.fenetreJours);
-  const [prof, se, be] = await Promise.all([
+  const [prof, se, be, te] = await Promise.all([
     sb.from("profiles").select("id, nom, groupe, sport_principal, sexe, consentement_at").eq("role", "athlete").order("nom"),
     lireTout("seances", "athlete_id, date, charge_ua", depuis),
-    lireTout("bien_etre", "athlete_id, date, sommeil, energie, douleurs, stress, humeur, score_total", depuis)
+    lireTout("bien_etre", "athlete_id, date, sommeil, energie, douleurs, stress, humeur, score_total", depuis),
+    lireTout("tests", "athlete_id, date, type_test, valeur, valeur2", depuis).catch(() => [])
   ]);
   if (prof.error) throw prof.error;
   const grouper = (l) => { const m = new Map(); for (const x of l) { if (!m.has(x.athlete_id)) m.set(x.athlete_id, []); m.get(x.athlete_id).push(x); } return m; };
-  const mS = grouper(se), mB = grouper(be), aujourdhui = dateLocale();
+  const mS = grouper(se), mB = grouper(be), mT = grouper(te), aujourdhui = dateLocale();
   const athletes = prof.data.filter((p) => p.consentement_at).map((p) => {
-    const seances = mS.get(p.id) || [], bien = mB.get(p.id) || [];
-    return { ...p, seances, be: bien, analyse: analyser(seances, bien, aujourdhui) };
+    const seances = mS.get(p.id) || [], bien = mB.get(p.id) || [], tst = mT.get(p.id) || [];
+    return { ...p, seances, be: bien, tests: tst, analyse: analyserTout(seances, bien, tst, aujourdhui) };
   });
   donneesStaff = { t: Date.now(), athletes, seances: se, be, aujourdhui };
   return donneesStaff;
@@ -462,7 +468,7 @@ async function ecranTableauStaff(profil, forcer = false) {
       const b = el("button", { type: "button", class: "ligne-athlete niv-" + an.niveau }, [
         el("div", { class: "ligne-haut" }, [el("strong", { text: x.nom || "Sans nom" }), pastilleNiveau(an.acwr.niveau, "ACWR " + fr(an.acwr.acwr))]),
         el("div", { class: "petit", text: [x.groupe, x.sport_principal].filter(Boolean).join(" · ") }),
-        el("div", { class: "petit", text: "7 j : " + an.charge7 + " UA · bien-être " + (an.dernier ? an.dernier.score_total + "/25 (" + dateFr(an.dernier.date) + ")" : "aucune saisie") + (nbAl ? " · " + nbAl + " alerte(s)" : "") })
+        el("div", { class: "petit", text: "7 j : " + an.charge7 + " UA · bien-être " + (an.dernier ? an.dernier.score_total + "/25 (" + dateFr(an.dernier.date) + ")" : "aucune saisie") + (an.tests && an.tests.resume ? " · " + an.tests.resume : "") + (nbAl ? " · " + nbAl + " alerte(s)" : "") })
       ]);
       b.addEventListener("click", () => ecranSuivi(x, profil, () => ecranTableauStaff(profil), true));
       return b;

@@ -122,3 +122,7 @@ details summary { cursor: pointer; color: var(--bleu); font-weight: 600; margin-
 .pastille-niv.niv-jaune { background: var(--jaune); color: #14213d; }
 .ligne-athlete.niv-jaune { border-left-color: var(--jaune); }
 :root { --jaune: #f2c200; }
+.alerte-niv.niv-vert { border-color: var(--vert); background: #e3f4e8; }
+.alerte-niv.niv-insuffisant { border-color: #8a93a6; background: #f1f3f7; }
+details textarea, details button { margin-top: 8px; }
+details p { font-size: .92rem; }

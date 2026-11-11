@@ -171,7 +171,7 @@ function blocAvertissement() {
     <h3>2. Ta santé passe avant l'application</h3>
     <p>En cas de douleur persistante ou inhabituelle, de malaise, de vertige, de douleur thoracique ou d'essoufflement anormal : <strong>arrête l'effort et consulte un professionnel de santé</strong>. En cas d'urgence, appelle les secours de ton pays. Une couleur verte ne signifie pas « aucun risque » ; une couleur rouge ne signifie pas « blessure certaine ».</p>
     <h3>3. Tes données sont sensibles</h3>
-    <p>L'application collecte des données de santé et de forme : sommeil, énergie, douleurs, stress, humeur, séances, tests physiques et, uniquement si tu le souhaites, ton cycle menstruel.</p>
+    <p>L'application collecte des données de santé et de forme : sommeil, énergie, douleurs, stress, humeur, séances, tests physiques (saut CMJ, sprint 30 m, fréquence cardiaque de repos et variabilité cardiaque HRV) et, uniquement si tu le souhaites, ton cycle menstruel.</p>
     <table>
       <tr><th>Donnée</th><th>Toi</th><th>Staff</th></tr>
       <tr><td>Bien-être, séances, tests</td><td>Oui</td><td>Oui</td></tr>
@@ -347,6 +347,7 @@ function ecranAccueil(profil) {
     el("div", { class: "grille" }, [
       tuile("Bien-être du matin", "1 minute", () => ecranBienEtre(profil)),
       tuile("Séance + RPE", "après l'entraînement", () => ecranSeance(profil)),
+      tuile("Tests de forme", "HRV, CMJ, sprint 30 m", () => ecranTests(profil)),
       tuile("Mon suivi", "graphiques et alertes", () => ecranSuivi(profil, profil, demarrer)),
       estStaff ? tuile("Tableau de bord", "toute l'équipe", () => ecranTableauStaff(profil)) : null
     ].filter(Boolean))
