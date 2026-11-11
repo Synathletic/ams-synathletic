@@ -587,21 +587,38 @@ function ecranSeance(profil) {
   window.scrollTo(0, 0);
 }
 
-/* ---------- Historique personnel (7 dernières saisies de chaque type) ---------- */
+/* ---------- Historique personnel (7 dernières saisies de chaque type, avec suppression) ---------- */
+async function supprimerSaisie(profil, table, id, libelle) {
+  if (!confirm("Supprimer cette saisie ?\n" + libelle + "\nCette action est définitive.")) return;
+  try {
+    const { error } = await sb.from(table).delete().eq("id", id).eq("athlete_id", profil.id);
+    if (error) throw error;
+    if (typeof donneesStaff !== "undefined") donneesStaff = null;
+    afficherMessage("Saisie supprimée.", "succes");
+    await demarrer();
+  } catch (err) { afficherMessage(erreurReseau(err) ? "Pas de réseau : suppression impossible hors connexion." : messageErreur(err), "erreur"); }
+}
 async function chargerHistorique(profil, zone) {
   try {
-    const [be, se] = await Promise.all([
-      sb.from("bien_etre").select("date, score_total").eq("athlete_id", profil.id).order("date", { ascending: false }).limit(7),
-      sb.from("seances").select("date, categorie, duree_min, rpe, charge_ua").eq("athlete_id", profil.id).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(7)
+    const [be, se, te] = await Promise.all([
+      sb.from("bien_etre").select("id, date, score_total").eq("athlete_id", profil.id).order("date", { ascending: false }).limit(7),
+      sb.from("seances").select("id, date, categorie, duree_min, rpe, charge_ua").eq("athlete_id", profil.id).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(7),
+      sb.from("tests").select("id, date, type_test, valeur, valeur2").eq("athlete_id", profil.id).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(7)
     ]);
     if (be.error) throw be.error;
     if (se.error) throw se.error;
     const nomCat = Object.fromEntries([...CATEGORIES_ATHLE, ...CATEGORIES_AUTRES]);
-    const lignes = (titre, items, rendu) => [el("h3", { text: titre }),
-      items.length ? el("ul", { class: "liste" }, items.map((x) => el("li", { text: rendu(x) }))) : el("p", { class: "petit", text: "Rien pour l'instant." })];
-    zone.replaceChildren(el("h2", { text: "Mes dernières saisies" }),
-      ...lignes("Bien-être (score sur 25)", be.data, (x) => dateFr(x.date) + " : " + x.score_total + "/25"),
-      ...lignes("Séances", se.data, (x) => dateFr(x.date) + " : " + (nomCat[x.categorie] || x.categorie) + ", " + x.duree_min + " min, RPE " + x.rpe + " = " + x.charge_ua + " UA"));
+    const lignes = (titre, items, table, rendu) => [el("h3", { text: titre }),
+      items.length ? el("ul", { class: "liste liste-saisies" }, items.map((x) => {
+        const txt = rendu(x);
+        return el("li", {}, [el("span", { text: txt }), el("button", { type: "button", class: "btn-suppr", "aria-label": "Supprimer : " + txt, text: "Supprimer", onclick: () => supprimerSaisie(profil, table, x.id, txt) })]);
+      })) : el("p", { class: "petit", text: "Rien pour l'instant." })];
+    const blocs = [el("h2", { text: "Mes dernières saisies" }),
+      ...lignes("Bien-être (score sur 25)", be.data, "bien_etre", (x) => dateFr(x.date) + " : " + x.score_total + "/25"),
+      ...lignes("Séances", se.data, "seances", (x) => dateFr(x.date) + " : " + (nomCat[x.categorie] || x.categorie) + ", " + x.duree_min + " min, RPE " + x.rpe + " = " + x.charge_ua + " UA")];
+    if (!te.error && typeof texteTest === "function") blocs.push(...lignes("Tests de forme", te.data, "tests", (x) => dateFr(x.date) + " : " + texteTest(x)));
+    blocs.push(el("p", { class: "petit", text: "Une erreur de saisie ? Supprime la ligne, puis ressaisis-la. Pour le bien-être, tu peux aussi refaire la saisie du même jour : elle remplace la précédente." }));
+    zone.replaceChildren(...blocs);
   } catch (err) {
     zone.replaceChildren(el("h2", { text: "Mes dernières saisies" }), el("p", { class: "petit", text: erreurReseau(err) ? "Historique indisponible sans réseau." : messageErreur(err) }));
   }
