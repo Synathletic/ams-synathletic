@@ -1,4 +1,4 @@
-// AMS Syn'Athlétic : étapes 5 et 6
+// Athlete Monitoring System Syn'Athlétic : étapes 5 et 6
 // Analyses (charge, ACWR, alertes), graphiques SVG, export CSV, vue « Mon suivi » et tableau de bord staff.
 // Chargé AVANT app.js : tout ce qui touche à l'interface n'est appelé qu'après le démarrage de l'application.
 // Signé Syn'Athlétic / Alexandre GERBER
@@ -440,27 +440,26 @@ async function ecranTableauStaff(profil, forcer = false) {
     return;
   }
   const { athletes, aujourdhui } = D;
-  const rouges = athletes.filter((x) => x.analyse.niveau === "rouge").length;
-  const oranges = athletes.filter((x) => x.analyse.niveau === "orange").length;
-  const jaunes = athletes.filter((x) => x.analyse.niveau === "jaune").length;
-  const sansAlerte = athletes.filter((x) => x.analyse.niveau === "ok").length;
-  const sansSaisie = athletes.filter((x) => x.analyse.alertes.some((a) => a.code === "sans_saisie" || a.code === "aucune_saisie")).length;
   const tuile = (titre, v, niveau) => el("div", { class: "chiffre" + (niveau ? " niv-" + niveau : "") }, [el("small", { text: titre }), el("strong", { text: String(v) })]);
-  const ecran = [enTete("Tableau de bord staff", demarrer),
-    el("section", { class: "carte" }, [
-      el("div", { class: "grille-chiffres" }, [tuile("Athlètes suivis", athletes.length), tuile("Rouge", rouges, rouges ? "rouge" : ""), tuile("Orange", oranges, oranges ? "orange" : ""), tuile("Jaune", jaunes, jaunes ? "jaune" : ""), tuile("Sans alerte", sansAlerte, sansAlerte ? "vert" : ""), tuile("Sans bien-être ≥ 3 j", sansSaisie)]),
-      el("p", { class: "petit", text: "Mis à jour à " + new Date(D.t).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) + ". Repères de discussion, pas des diagnostics." }),
-      el("button", { class: "btn btn-secondaire", type: "button", text: "Actualiser", onclick: () => ecranTableauStaff(profil, true) })
-    ])];
 
-  // Filtres et liste
+  // Filtre par groupe : il s'applique aux compteurs, à la liste et aux graphiques (mémorisé pendant la session)
   const groupes = [...new Set(athletes.map((x) => x.groupe).filter(Boolean))].sort();
   const selGroupe = el("select", { id: "f-groupe" }, [el("option", { value: "", text: "Tous les groupes" }), ...groupes.map((g) => el("option", { value: g, text: g }))]);
+  try { const g = sessionStorage.getItem("ams_filtre_groupe"); if (g && groupes.includes(g)) selGroupe.value = g; } catch (e) { /* facultatif */ }
   const caseAl = el("input", { type: "checkbox", id: "f-alertes" });
-  const liste = el("div");
+  const zoneChiffres = el("div"), liste = el("div"), zoneGraphes = el("div");
   const rang = { rouge: 0, orange: 1, jaune: 2, ok: 3 };
+  const duGroupe = () => athletes.filter((x) => !selGroupe.value || x.groupe === selGroupe.value);
+
+  function dessinerChiffres() {
+    const g = duGroupe();
+    const n = (f) => g.filter(f).length;
+    const rouges = n((x) => x.analyse.niveau === "rouge"), oranges = n((x) => x.analyse.niveau === "orange"), jaunes = n((x) => x.analyse.niveau === "jaune"), sansAlerte = n((x) => x.analyse.niveau === "ok");
+    const sansSaisie = n((x) => x.analyse.alertes.some((a) => a.code === "sans_saisie" || a.code === "aucune_saisie"));
+    zoneChiffres.replaceChildren(el("div", { class: "grille-chiffres" }, [tuile("Athlètes suivis", g.length), tuile("Rouge", rouges, rouges ? "rouge" : ""), tuile("Orange", oranges, oranges ? "orange" : ""), tuile("Jaune", jaunes, jaunes ? "jaune" : ""), tuile("Sans alerte", sansAlerte, sansAlerte ? "vert" : ""), tuile("Sans bien-être ≥ 3 j", sansSaisie)]));
+  }
   function dessinerListe() {
-    const vus = athletes.filter((x) => (!selGroupe.value || x.groupe === selGroupe.value) && (!caseAl.checked || x.analyse.niveau !== "ok"))
+    const vus = duGroupe().filter((x) => !caseAl.checked || x.analyse.niveau !== "ok")
       .sort((x, y) => rang[x.analyse.niveau] - rang[y.analyse.niveau] || (x.nom || "").localeCompare(y.nom || "", "fr"));
     if (!vus.length) { liste.replaceChildren(el("p", { class: "petit", text: athletes.length ? "Aucun athlète ne correspond." : "Aucun athlète n'a encore accepté le consentement." })); return; }
     liste.replaceChildren(...vus.map((x) => {
@@ -474,23 +473,36 @@ async function ecranTableauStaff(profil, forcer = false) {
       return b;
     }));
   }
-  selGroupe.addEventListener("change", dessinerListe); caseAl.addEventListener("change", dessinerListe);
-  dessinerListe();
-  ecran.push(el("section", { class: "carte" }, [el("h2", { text: "Athlètes" }), el("label", { for: "f-groupe", text: "Groupe" }), selGroupe,
-    el("div", { class: "ligne-case" }, [caseAl, el("label", { for: "f-alertes", text: "Afficher seulement les athlètes en alerte" })]), liste]));
+  function dessinerGraphes() {
+    const g = duGroupe();
+    const actifs = g.filter((x) => x.seances.length).length || 1;
+    const mapCol = chargesParJour(g.flatMap((x) => x.seances));
+    const parJour = new Map();
+    for (const x of g.flatMap((a) => a.be)) { const e = parJour.get(x.date) || { t: 0, n: 0 }; e.t += x.score_total; e.n++; parJour.set(x.date, e); }
+    const serieCol = serieBienEtre([], aujourdhui, "score_total").map((p, i, arr) => {
+      const j = jourPlus(aujourdhui, -(arr.length - 1 - i)), e = parJour.get(j);
+      return { lib: p.lib, val: e ? Math.round((e.t / e.n) * 10) / 10 : null };
+    });
+    zoneGraphes.replaceChildren(
+      graphBarres("Charge hebdomadaire moyenne par athlète (UA)", serieHebdo(mapCol, aujourdhui).map((p) => ({ lib: p.lib, val: Math.round(p.val / actifs) })), []),
+      graphLigne("Bien-être moyen du groupe (score sur 25, 30 jours)", serieCol, { min: 5, max: 25, graduations: [5, 10, 15, 20, 25], decimales: 1,
+        bandes: [{ de: 5, a: 12.5, couleur: "#fde3e5" }, { de: 12.5, a: 15.5, couleur: "#fff0de" }, { de: 15.5, a: 19.5, couleur: "#fff9db" }, { de: 19.5, a: 25, couleur: "#e3f4e8" }] }, []));
+  }
+  const toutDessiner = () => { dessinerChiffres(); dessinerListe(); dessinerGraphes(); };
+  selGroupe.addEventListener("change", () => { try { sessionStorage.setItem("ams_filtre_groupe", selGroupe.value); } catch (e) { /* facultatif */ } toutDessiner(); });
+  caseAl.addEventListener("change", dessinerListe);
+  toutDessiner();
 
-  // Tendances collectives
-  const actifs = athletes.filter((x) => x.seances.length).length || 1;
-  const toutes = athletes.flatMap((x) => x.seances), mapCol = chargesParJour(toutes);
-  ecran.push(graphBarres("Charge hebdomadaire moyenne par athlète (UA)", serieHebdo(mapCol, aujourdhui).map((p) => ({ lib: p.lib, val: Math.round(p.val / actifs) })), []));
-  const parJour = new Map();
-  for (const x of athletes.flatMap((a) => a.be)) { const e = parJour.get(x.date) || { t: 0, n: 0 }; e.t += x.score_total; e.n++; parJour.set(x.date, e); }
-  const serieCol = serieBienEtre([], aujourdhui, "score_total").map((p, i, arr) => {
-    const j = jourPlus(aujourdhui, -(arr.length - 1 - i)), e = parJour.get(j);
-    return { lib: p.lib, val: e ? Math.round((e.t / e.n) * 10) / 10 : null };
-  });
-  ecran.push(graphLigne("Bien-être moyen du groupe (score sur 25, 30 jours)", serieCol, { min: 5, max: 25, graduations: [5, 10, 15, 20, 25], decimales: 1,
-    bandes: [{ de: 5, a: 12.5, couleur: "#fde3e5" }, { de: 12.5, a: 15.5, couleur: "#fff0de" }, { de: 15.5, a: 19.5, couleur: "#fff9db" }, { de: 19.5, a: 25, couleur: "#e3f4e8" }] }, []));
+  const ecran = [enTete("Tableau de bord staff", demarrer),
+    el("section", { class: "carte" }, [
+      el("label", { for: "f-groupe", text: "Groupe affiché" }), selGroupe,
+      zoneChiffres,
+      el("p", { class: "petit", text: "Mis à jour à " + new Date(D.t).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) + ". Repères de discussion, pas des diagnostics." }),
+      el("button", { class: "btn btn-secondaire", type: "button", text: "Actualiser", onclick: () => ecranTableauStaff(profil, true) })
+    ]),
+    el("section", { class: "carte" }, [el("h2", { text: "Athlètes" }),
+      el("div", { class: "ligne-case" }, [caseAl, el("label", { for: "f-alertes", text: "Afficher seulement les athlètes en alerte" })]), liste]),
+    zoneGraphes];
 
   // Exports collectifs
   const noms = new Map(athletes.map((x) => [x.id, x]));

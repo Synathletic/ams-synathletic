@@ -1,6 +1,6 @@
 {
-  "name": "AMS Syn’Athlétic",
-  "short_name": "AMS Syn’Athlétic",
+  "name": "Athlete Monitoring System Syn’Athlétic",
+  "short_name": "Athlete Monitoring System Syn’Athlétic",
   "description": "Suivi de charge, de forme et de récupération des athlètes Syn’Athlétic.",
   "lang": "fr",
   "start_url": "./index.html",

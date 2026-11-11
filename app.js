@@ -1,4 +1,4 @@
-// AMS Syn'Athlétic : étapes 4 à 6 (analyses et graphiques : voir suivi.js)
+// Athlete Monitoring System Syn'Athlétic : étapes 4 à 6 (analyses et graphiques : voir suivi.js)
 // Connexion, consentement, accueil, bien-être du matin, saisie de séance (RPE), historique
 // et saisie hors connexion (file d'attente locale envoyée au retour du réseau).
 // Signé Syn'Athlétic / Alexandre GERBER
@@ -62,6 +62,15 @@ function groupeInvitation() {
   } catch (e) { return ""; }
 }
 groupeInvitation();
+// ...&sport=football (athletisme, football, handball, basketball, autre) pré-sélectionne le sport
+function sportInvitation() {
+  try {
+    const s = new URLSearchParams(location.search).get("sport");
+    if (s && ["athletisme", "football", "handball", "basketball", "autre"].includes(s)) localStorage.setItem("ams_sport_invite", s);
+    return localStorage.getItem("ams_sport_invite") || "";
+  } catch (e) { return ""; }
+}
+sportInvitation();
 
 function emailValide(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v); }
 
@@ -176,7 +185,7 @@ function blocAvertissement() {
   const b = el("div", { class: "texte-long", tabindex: "0", role: "region", "aria-label": "Avertissement de santé" });
   b.innerHTML = `
     <h3>1. À quoi sert cet outil</h3>
-    <p>L'AMS Syn'Athlétic est un outil de <strong>suivi de l'entraînement</strong> : il t'aide, ainsi que ton staff, à suivre ta charge de travail, ta récupération et ton état de forme.</p>
+    <p>L'Athlete Monitoring System Syn'Athlétic est un outil de <strong>suivi de l'entraînement</strong> : il t'aide, ainsi que ton staff, à suivre ta charge de travail, ta récupération et ton état de forme.</p>
     <p>Ce n'est <strong>pas un dispositif médical</strong>. Il ne pose <strong>aucun diagnostic</strong> et ne remplace ni un médecin, ni un kinésithérapeute, ni un professionnel de santé. Les indicateurs et codes couleur sont des repères pour en discuter, ils ne prédisent pas une blessure.</p>
     <h3>2. Ta santé passe avant l'application</h3>
     <p>En cas de douleur persistante ou inhabituelle, de malaise, de vertige, de douleur thoracique ou d'essoufflement anormal : <strong>arrête l'effort et consulte un professionnel de santé</strong>. En cas d'urgence, appelle les secours de ton pays. Une couleur verte ne signifie pas « aucun risque » ; une couleur rouge ne signifie pas « blessure certaine ».</p>
@@ -296,6 +305,7 @@ function ecranConsentement(profil) {
     ["athletisme", "Athlétisme"], ["football", "Football"], ["handball", "Handball"],
     ["basketball", "Basketball"], ["autre", "Autre sport"]
   ].map(([v, t]) => el("option", { value: v, text: t })));
+  const sportInvit = sportInvitation(); if (sportInvit) selSport.value = sportInvit;
   const champGroupe = el("input", { id: "groupe", type: "text", maxlength: "40", placeholder: "Ex : Sprint, Haies, U19…", value: groupeInvitation() });
   const champNom = el("input", { id: "nomprofil", type: "text", maxlength: "80", value: profil.nom || "" });
 

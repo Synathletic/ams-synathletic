@@ -1,4 +1,4 @@
-/* AMS Syn'Athlétic : charte bleu royal #003087, rouge, orange */
+/* Athlete Monitoring System Syn'Athlétic : charte bleu royal #003087, rouge, orange */
 :root {
   --bleu: #003087;
   --bleu-clair: #e8eefc;
@@ -30,7 +30,7 @@ body {
   border-bottom: 4px solid var(--orange);
 }
 .logo { height: 44px; width: auto; background: #fff; border-radius: 8px; padding: 2px 6px; }
-.entete-titre { font-weight: 800; letter-spacing: 2px; font-size: 1.1rem; flex: 1; }
+.entete-titre { font-weight: 800; letter-spacing: .3px; font-size: .85rem; flex: 1; }
 .btn-lien { background: none; border: 1px solid rgba(255,255,255,.6); color: #fff; border-radius: 999px; padding: 6px 14px; font-size: .85rem; cursor: pointer; }
 #app { max-width: 560px; margin: 0 auto; padding: 16px; }
 .carte { background: var(--carte); border: 1px solid var(--bord); border-radius: var(--rayon); padding: 18px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,48,135,.06); }

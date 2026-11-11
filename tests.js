@@ -1,5 +1,5 @@
 /* =====================================================================
-   AMS Syn'Athlétic — Tests de forme : CMJ, HRV + FC de repos, sprint 30 m
+   Athlete Monitoring System Syn'Athlétic — Tests de forme : CMJ, HRV + FC de repos, sprint 30 m
    et lecture croisée avec la charge (ACWR) et le bien-être.
    Les seuils ci-dessous sont modifiables. Ce sont des repères de travail
    à ajuster avec vos propres données, pas des diagnostics.
