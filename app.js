@@ -53,6 +53,16 @@ function messageErreur(err) {
   return "Une erreur est survenue. Réessaie, et préviens Syn'Athlétic si elle persiste.";
 }
 
+// Lien d'invitation : ...?groupe=Pole%20Sprint%20Haies pré-remplit le groupe à l'inscription (mémorisé jusqu'à la fin de l'inscription)
+function groupeInvitation() {
+  try {
+    const g = new URLSearchParams(location.search).get("groupe");
+    if (g && g.trim()) localStorage.setItem("ams_groupe_invite", g.trim().slice(0, 40));
+    return localStorage.getItem("ams_groupe_invite") || "";
+  } catch (e) { return ""; }
+}
+groupeInvitation();
+
 function emailValide(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v); }
 
 /* ---------- Saisie hors connexion : file d'attente locale ---------- */
@@ -286,7 +296,7 @@ function ecranConsentement(profil) {
     ["athletisme", "Athlétisme"], ["football", "Football"], ["handball", "Handball"],
     ["basketball", "Basketball"], ["autre", "Autre sport"]
   ].map(([v, t]) => el("option", { value: v, text: t })));
-  const champGroupe = el("input", { id: "groupe", type: "text", maxlength: "40", placeholder: "Ex : Sprint, Haies, U19…" });
+  const champGroupe = el("input", { id: "groupe", type: "text", maxlength: "40", placeholder: "Ex : Sprint, Haies, U19…", value: groupeInvitation() });
   const champNom = el("input", { id: "nomprofil", type: "text", maxlength: "80", value: profil.nom || "" });
 
   form.append(
@@ -297,7 +307,7 @@ function ecranConsentement(profil) {
     el("label", { for: "sport", text: "Sport principal" }), selSport,
     el("label", { for: "groupe", text: "Groupe (facultatif)" }), champGroupe,
     el("label", { for: "sexe", text: "Sexe (sert uniquement à afficher la question sur le cycle)" }), selSexe,
-    el("div", { class: "ligne-case" }, [caseOk, el("label", { for: "ok", text: "J'ai lu et j'accepte : mes données de bien-être, de séances et de tests sont enregistrées et consultables par le staff Syn'Athlétic. Mon cycle menstruel n'est visible du staff que si j'active moi-même le partage. Cet outil ne remplace pas un avis médical." })]),
+    el("div", { class: "ligne-case" }, [caseOk, el("label", { for: "ok", text: "J'ai lu et j'accepte : mes données de bien-être, de séances et de tests sont enregistrées et consultables par le staff Syn'Athlétic, qui peut aussi saisir pour moi des résultats de tests. Mon cycle menstruel n'est visible du staff que si j'active moi-même le partage. Cet outil ne remplace pas un avis médical." })]),
     bouton
   );
   form.addEventListener("submit", async (ev) => {
@@ -349,7 +359,8 @@ function ecranAccueil(profil) {
       tuile("Séance + RPE", "après l'entraînement", () => ecranSeance(profil)),
       tuile("Tests de forme", "HRV, CMJ, sprint 30 m", () => ecranTests(profil)),
       tuile("Mon suivi", "graphiques et alertes", () => ecranSuivi(profil, profil, demarrer)),
-      estStaff ? tuile("Tableau de bord", "toute l'équipe", () => ecranTableauStaff(profil)) : null
+      estStaff ? tuile("Tableau de bord", "toute l'équipe", () => ecranTableauStaff(profil)) : null,
+      estStaff ? tuile("Test pour un athlète", "je saisis à sa place", () => ecranChoixAthleteTest(profil)) : null
     ].filter(Boolean))
   ]);
   const zoneHisto = el("section", { class: "carte" }, [el("h2", { text: "Mes dernières saisies" }), el("p", { class: "petit", text: "Chargement…" })]);

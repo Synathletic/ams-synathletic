@@ -268,7 +268,8 @@ function ecranTests(profil) {
   const tuile = (titre, sous, action) => el("button", { class: "tuile", type: "button", onclick: action }, [titre, el("small", { text: sous })]);
   const recents = el("section", { class: "carte" }, [el("h2", { text: "Mes derniers tests" }), el("p", { class: "petit", text: "Chargement…" })]);
   racine.append(
-    enTete("Tests de forme", demarrer),
+    enTete(profil._pour ? "Tests de " + (profil.nom || "l'athlète") : "Tests de forme", profil._pour ? () => ecranChoixAthleteTest(profil._staff) : demarrer),
+    ...(profil._pour ? [el("div", { class: "avertissement", text: "Tu saisis à la place de " + (profil.nom || "l'athlète") + ". Ces résultats sont notés « saisi par le staff »." })] : []),
     el("section", { class: "carte" }, [
       el("p", { class: "petit", text: "Ces tests servent à suivre ta forme dans le temps, en les comparant à tes propres valeurs. Fais-les toujours dans les mêmes conditions." }),
       el("div", { class: "grille" }, [
@@ -294,8 +295,47 @@ function ecranTests(profil) {
   window.scrollTo(0, 0);
 }
 
+/* Choix de l'athlète (staff) pour saisir un test à sa place */
+function ecranChoixAthleteTest(profilStaff) {
+  racine.replaceChildren();
+  const zone = el("section", { class: "carte" }, [el("h2", { text: "Athlètes" }), el("p", { class: "petit", text: "Chargement…" })]);
+  racine.append(
+    enTete("Saisir un test pour un athlète", demarrer),
+    el("p", { class: "petit", text: "Choisis l'athlète testé. Seuls les athlètes ayant donné leur consentement apparaissent comme sélectionnables. Il faut une connexion internet." }),
+    zone,
+    el("p", { class: "signature", text: "Syn'Athlétic / Alexandre GERBER" })
+  );
+  (async () => {
+    try {
+      const { data, error } = await sb.from("profiles").select("id, nom, groupe, consentement_at").eq("role", "athlete").order("nom");
+      if (error) throw error;
+      zone.replaceChildren(el("h2", { text: "Athlètes" }), data.length
+        ? el("div", { class: "grille" }, data.map((a) => {
+          const attrs = { type: "button", class: "tuile" };
+          if (a.consentement_at) attrs.onclick = () => ecranTests({ ...profilStaff, id: a.id, nom: a.nom, _pour: true, _staff: profilStaff });
+          else attrs.disabled = "";
+          return el("button", attrs, [a.nom || "Sans nom", el("small", { text: a.consentement_at ? (a.groupe || "athlète") : "consentement manquant" })]);
+        }))
+        : el("p", { class: "petit", text: "Aucun athlète inscrit pour l'instant." }));
+    } catch (err) { zone.replaceChildren(el("h2", { text: "Athlètes" }), el("p", { class: "petit", text: erreurReseau(err) ? "Liste indisponible hors connexion." : messageErreur(err) })); }
+  })();
+  window.scrollTo(0, 0);
+}
+
 async function sauverTest(profil, type, date, valeur, valeur2, details, commentaire, bouton) {
   bouton.disabled = true;
+  if (profil._pour) {   // saisie par le staff : en ligne uniquement, pas de file d'attente
+    try {
+      await envoyerLigne("tests", {
+        id: nouvelId(), athlete_id: profil.id, date, type_test: type, valeur: arrondi(valeur, 3),
+        valeur2: valeur2 === null ? null : arrondi(valeur2, 3), details: { ...details, saisi_par: "staff" }, commentaire: commentaire || null
+      }, "id");
+      if (typeof donneesStaff !== "undefined") donneesStaff = null;
+      afficherMessage("Test enregistré pour " + (profil.nom || "l'athlète") + ".", "succes");
+      ecranTests(profil);
+    } catch (err) { afficherMessage(erreurReseau(err) ? "Pas de réseau : la saisie pour un athlète n'est possible qu'en ligne." : messageErreur(err), "erreur"); bouton.disabled = false; }
+    return;
+  }
   try {
     const etat = await enregistrer("tests", {
       id: nouvelId(), athlete_id: profil.id, date, type_test: type, valeur: arrondi(valeur, 3),
