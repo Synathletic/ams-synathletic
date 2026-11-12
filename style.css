@@ -130,3 +130,12 @@ details p { font-size: .92rem; }
 .liste-saisies li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--bord); }
 .btn-suppr { flex: none; background: #fff; color: var(--rouge); border: 1px solid var(--rouge); border-radius: 8px; padding: 6px 10px; font-size: .8rem; font-weight: 700; cursor: pointer; font-family: inherit; }
 .btn-suppr:active { background: #fdecee; }
+
+/* Saisie équipe (staff) */
+.eq-carte { cursor: default; }
+.eq-grille5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 8px; }
+.eq-mini { display: block; font-size: .7rem; color: var(--gris); font-weight: 400; margin: 0; }
+.eq-mini select { width: 100%; padding: 8px 2px; margin-top: 2px; }
+.eq-seance { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 6px; margin-top: 8px; }
+.eq-seance select, .eq-seance input { width: 100%; padding: 8px 6px; min-width: 0; }
+.eq-info { margin: 6px 0 0; }

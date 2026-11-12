@@ -370,6 +370,8 @@ function ecranAccueil(profil) {
       tuile("Tests de forme", "HRV, CMJ, sprint 30 m", () => ecranTests(profil)),
       tuile("Mon suivi", "graphiques et alertes", () => ecranSuivi(profil, profil, demarrer)),
       estStaff ? tuile("Tableau de bord", "toute l'équipe", () => ecranTableauStaff(profil)) : null,
+      estStaff ? tuile("Saisie équipe", "bien-être + séances du jour", () => ecranSaisieEquipe(profil)) : null,
+      estStaff ? tuile("Ajouter un athlète", "profil sans compte", () => ecranAjoutAthlete(profil)) : null,
       estStaff ? tuile("Test pour un athlète", "je saisis à sa place", () => ecranChoixAthleteTest(profil)) : null
     ].filter(Boolean))
   ]);
