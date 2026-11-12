@@ -103,9 +103,10 @@ function lectureCroisee(R, be, an, auj) {
   const dernierBE = be.length ? be[be.length - 1] : null;
   if (dernierBE && ecartJours(dernierBE.date, auj) <= S.joursBienEtre) sig.push({ cle: "be", texte: "Bien-être bas (" + dernierBE.score_total + "/25)", actif: dernierBE.score_total <= SEUILS.scoreOrange, bon: "Bien-être correct" });
   const chargeHaute = (an.acwr.acwr !== null && an.acwr.acwr > SEUILS.acwrVertMax) || (an.rapport !== null && an.rapport > SEUILS.hausseRouge);
+  const monoHaute = !!(an.mono && (an.mono.niveau === "orange" || an.mono.niveau === "rouge"));
   const actifs = sig.filter((x) => x.actif), n = actifs.length, m = sig.length;
   const aTest = sig.some((x) => x.actif && x.cle !== "be");
-  const r = { signaux: sig, n, m, chargeHaute, niveau: "insuffisant", titre: "", detail: "", piste: "" };
+  const r = { signaux: sig, n, m, chargeHaute, monoHaute, niveau: "insuffisant", titre: "", detail: "", piste: "" };
   if (m < 2) {
     r.titre = "Pas encore assez de données croisées";
     r.detail = "Il faut au moins deux indicateurs récents (HRV, FC de repos, CMJ, sprint, bien-être) pour croiser les informations.";
@@ -134,6 +135,8 @@ function lectureCroisee(R, be, an, auj) {
     if (actifs.some((x) => x.cle === "hrv") && actifs.some((x) => x.cle === "fc")) p += " En cas de fièvre ou de symptômes inhabituels, pas d'effort intense et avis médical.";
     r.piste = p;
   }
+  if (monoHaute && n >= 1) r.piste += " La charge des 7 derniers jours est très uniforme (monotonie " + fr(an.mono.monotonie) + ") : varier davantage jours durs, faciles et repos peut aider la récupération.";
+  else if (monoHaute && n === 0) r.piste += " Attention cependant : la monotonie de la charge est élevée (" + fr(an.mono.monotonie) + "), à corriger en variant les jours durs et faciles.";
   r.alerte = aTest && n >= S.convOrange;
   return r;
 }

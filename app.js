@@ -531,13 +531,44 @@ const CATEGORIES_ATHLE = [
   ["force_max", "Force max"], ["force_explosive", "Force explosive"], ["puissance", "Puissance"],
   ["endurance_force", "Endurance de force"], ["endurance_fondamentale", "Endurance fondamentale"], ["tempo_extensif", "Tempo extensif"],
   ["prevention_blessures", "Prévention des blessures"], ["mobilite_souplesse", "Mobilité / souplesse"],
-  ["match_competition", "Compétition"], ["recuperation", "Récupération"], ["autre", "Autre"]
+  ["physique", "Physique"], ["vma", "VMA"], ["evaluation", "Évaluation"], ["prevention_rea", "Prévention / réathlétisation"], ["mental", "Mental"],
+  ["match_competition", "Compétition"], ["recuperation", "Récupération"], ["repos", "Repos"], ["autre", "Autre"]
 ];
-const CATEGORIES_AUTRES = [
+// Athlétisme : précisions facultatives pour certains types
+const DETAILS_ATHLE = {
+  physique: [["force", "Force"], ["puissance_plyo", "Puissance / pliométrie"], ["vitesse", "Vitesse"], ["endurance_continue", "Endurance continue"], ["endurance_intermittente", "Endurance intermittente"], ["mobilite_gainage", "Mobilité / gainage"]],
+  evaluation: [["tests_physiques", "Tests physiques"], ["bilan_technique", "Bilan technique"]],
+  recuperation: [["soins", "Soins"], ["etirements", "Étirements"], ["cryotherapie", "Cryothérapie"], ["autre_recup", "Autre (bains, massage…)"]],
+  prevention_rea: [["prevention", "Prévention"], ["rehab", "Réathlétisation"]]
+};
+// Sports collectifs : type de séance + précision (facultative)
+const DETAIL_TECHNIQUE = [
+  ["individuelle", "Individuelle"], ["par_poste", "Par poste"], ["famille_passe", "Par famille : passe"],
+  ["famille_tir", "Par famille : tir"], ["famille_duel", "Par famille : duel"], ["famille_gardien", "Par famille : gardien"]
+];
+const TYPES_COLLECTIF = [
+  ["physique", "Physique", [["force", "Force"], ["puissance_plyo", "Puissance / pliométrie"], ["vitesse", "Vitesse"], ["endurance_continue", "Endurance continue"], ["endurance_intermittente", "Endurance intermittente"], ["mobilite_gainage", "Mobilité / gainage"]]],
+  ["technique", "Technique", DETAIL_TECHNIQUE],
+  ["tactique", "Tactique (collectif sans opposition)", [["schemas", "Schémas"], ["systemes", "Systèmes"], ["phases_arretees", "Coups de pied arrêtés / phases arrêtées"]]],
+  ["opposition", "Opposition", DETAIL_TECHNIQUE],
+  ["match_competition", "Match / compétition", [["officiel", "Officiel"], ["amical", "Amical"]]],
+  ["evaluation", "Évaluation", [["tests_physiques", "Tests physiques"], ["bilan_technique", "Bilan technique"]]],
+  ["recuperation", "Récupération", [["active", "Active"], ["soins", "Soins"], ["etirements", "Étirements"]]],
+  ["prevention_rea", "Prévention / réathlétisation", [["prevention", "Prévention"], ["rehab", "Réathlétisation"]]],
+  ["mental_video", "Mental / vidéo / théorie", [["mental", "Mental"], ["video", "Vidéo"], ["theorie", "Théorie"]]],
+  ["repos", "Repos", []]
+];
+const CATEGORIES_AUTRES = TYPES_COLLECTIF.map(([v, t]) => [v, t]);
+// Anciens types (séances déjà enregistrées) : on garde leur libellé pour l'historique
+const CATEGORIES_ANCIENNES = [
   ["vitesse", "Vitesse"], ["endurance", "Endurance"], ["force", "Force"], ["souplesse", "Souplesse"],
-  ["coordination", "Coordination"], ["technique_tactique", "Technique / tactique"], ["match_competition", "Match / compétition"],
-  ["recuperation", "Récupération"], ["autre", "Autre"]
+  ["coordination", "Coordination"], ["technique_tactique", "Technique / tactique"], ["autre", "Autre"]
 ];
+const LIBELLES_DETAIL = Object.fromEntries([...TYPES_COLLECTIF.flatMap(([, , d]) => d), ...Object.values(DETAILS_ATHLE).flat()]);
+function libelleCategorie(c, detail) {
+  const base = Object.fromEntries([...CATEGORIES_ANCIENNES, ...CATEGORIES_ATHLE, ...CATEGORIES_AUTRES])[c] || c;
+  return detail && LIBELLES_DETAIL[detail] ? base + " (" + LIBELLES_DETAIL[detail] + ")" : base;
+}
 const TEXTE_RPE = ["", "Très facile", "Facile", "Modéré", "Un peu dur", "Dur", "Dur+", "Très dur", "Très très dur", "Presque max", "Maximal"];
 
 function ecranSeance(profil) {
@@ -549,16 +580,28 @@ function ecranSeance(profil) {
   const selCat = el("select", { id: "cat-s" });
   const champVolume = el("input", { id: "vol-s", type: "number", inputmode: "numeric", min: "0", max: "100000", step: "10", placeholder: "Ex : 600" });
   const blocVolume = el("div", {}, [el("label", { for: "vol-s", text: "Volume de course en mètres (facultatif)" }), champVolume]);
+  const selDetail = el("select", { id: "detail-s" });
+  const blocDetail = el("div", { class: "cache" }, [el("label", { for: "detail-s", text: "Précision (facultatif)" }), selDetail]);
+  const estRepos = () => selCat.value === "repos";
+  function majDetail() {
+    const type = TYPES_COLLECTIF.find((x) => x[0] === selCat.value);
+    const options = selSport.value === "athletisme" ? (DETAILS_ATHLE[selCat.value] || []) : (type ? type[2] : []);
+    selDetail.replaceChildren(el("option", { value: "", text: "Non précisé" }), ...options.map(([v, t]) => el("option", { value: v, text: t })));
+    blocDetail.classList.toggle("cache", !options.length);
+    for (const n of [blocDuree, rpe.noeud, aideRpe, resume]) n.classList.toggle("cache", estRepos());
+  }
   function majCategories() {
     const liste = selSport.value === "athletisme" ? CATEGORIES_ATHLE : CATEGORIES_AUTRES;
     selCat.replaceChildren(el("option", { value: "", text: "Choisis…" }), ...liste.map(([v, t]) => el("option", { value: v, text: t })));
     blocVolume.classList.toggle("cache", selSport.value !== "athletisme");
+    majDetail();
   }
   selSport.addEventListener("change", majCategories);
-  majCategories();
+  selCat.addEventListener("change", majDetail);
 
   const champDate = el("input", { type: "date", id: "date-s", value: dateLocale(), max: dateLocale() });
   const champDuree = el("input", { id: "duree-s", type: "number", inputmode: "numeric", min: "1", max: "480", placeholder: "Ex : 90" });
+  const blocDuree = el("div", {}, [el("label", { for: "duree-s", text: "Durée totale (minutes)" }), champDuree]);
   const rpe = echelle("e-rpe", "Effort ressenti (RPE) : à quel point la séance était-elle dure ?", "très facile", "maximal", 10);
   const aideRpe = el("p", { class: "petit", text: "Choisis une note de 1 à 10." });
   rpe.noeud.querySelectorAll(".pastille").forEach((b, k) => b.addEventListener("click", () => { aideRpe.textContent = (k + 1) + " : " + TEXTE_RPE[k + 1]; maj(); }));
@@ -575,16 +618,19 @@ function ecranSeance(profil) {
     el("label", { for: "date-s", text: "Date" }), champDate,
     el("label", { for: "sport-s", text: "Sport" }), selSport,
     el("label", { for: "cat-s", text: "Type de séance" }), selCat,
-    el("label", { for: "duree-s", text: "Durée totale (minutes)" }), champDuree,
+    blocDetail,
+    blocDuree,
     blocVolume, rpe.noeud, aideRpe, resume,
     el("label", { for: "com-s", text: "Commentaire" }), commentaire, bouton
   ]);
+  majCategories();
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    const duree = parseInt(champDuree.value, 10);
+    const repos = estRepos();
+    const duree = repos ? 0 : parseInt(champDuree.value, 10);
     if (!selCat.value) return afficherMessage("Choisis le type de séance.", "erreur");
-    if (!(duree >= 1 && duree <= 480)) return afficherMessage("Durée : entre 1 et 480 minutes.", "erreur");
-    if (!rpe.valeur()) return afficherMessage("Choisis ton effort ressenti (RPE).", "erreur");
+    if (!repos && !(duree >= 1 && duree <= 480)) return afficherMessage("Durée : entre 1 et 480 minutes.", "erreur");
+    if (!repos && !rpe.valeur()) return afficherMessage("Choisis ton effort ressenti (RPE).", "erreur");
     let volume = null;
     if (selSport.value === "athletisme" && champVolume.value !== "") {
       volume = parseInt(champVolume.value, 10);
@@ -594,10 +640,12 @@ function ecranSeance(profil) {
     try {
       const etat = await enregistrer("seances", {
         id: nouvelId(), athlete_id: profil.id, date: champDate.value || dateLocale(), sport: selSport.value, categorie: selCat.value,
-        duree_min: duree, rpe: rpe.valeur(), volume_course_m: volume, commentaire: commentaire.value.trim() || null
+        detail: selDetail.value || null,
+        duree_min: duree, rpe: repos ? 0 : rpe.valeur(), volume_course_m: volume, commentaire: commentaire.value.trim() || null
       }, "id");
-      if (etat === "envoye") afficherMessage("Séance enregistrée (" + (duree * rpe.valeur()) + " UA).", "succes");
-      else afficherMessage("Pas de réseau : séance gardée sur ton téléphone (" + (duree * rpe.valeur()) + " UA), envoi automatique au retour du réseau.", "info");
+      const ua = repos ? 0 : duree * rpe.valeur();
+      if (etat === "envoye") afficherMessage(repos ? "Repos enregistré." : "Séance enregistrée (" + ua + " UA).", "succes");
+      else afficherMessage("Pas de réseau : " + (repos ? "repos" : "séance") + " gardé sur ton téléphone" + (repos ? "" : " (" + ua + " UA)") + ", envoi automatique au retour du réseau.", "info");
       await demarrer();
     } catch (err) {
       afficherMessage(messageErreur(err), "erreur");
@@ -623,12 +671,11 @@ async function chargerHistorique(profil, zone) {
   try {
     const [be, se, te] = await Promise.all([
       sb.from("bien_etre").select("id, date, score_total").eq("athlete_id", profil.id).order("date", { ascending: false }).limit(7),
-      sb.from("seances").select("id, date, categorie, duree_min, rpe, charge_ua").eq("athlete_id", profil.id).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(7),
+      sb.from("seances").select("id, date, categorie, detail, duree_min, rpe, charge_ua").eq("athlete_id", profil.id).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(7),
       sb.from("tests").select("id, date, type_test, valeur, valeur2").eq("athlete_id", profil.id).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(7)
     ]);
     if (be.error) throw be.error;
     if (se.error) throw se.error;
-    const nomCat = Object.fromEntries([...CATEGORIES_ATHLE, ...CATEGORIES_AUTRES]);
     const lignes = (titre, items, table, rendu) => [el("h3", { text: titre }),
       items.length ? el("ul", { class: "liste liste-saisies" }, items.map((x) => {
         const txt = rendu(x);
@@ -636,7 +683,7 @@ async function chargerHistorique(profil, zone) {
       })) : el("p", { class: "petit", text: "Rien pour l'instant." })];
     const blocs = [el("h2", { text: "Mes dernières saisies" }),
       ...lignes("Bien-être (score sur 25)", be.data, "bien_etre", (x) => dateFr(x.date) + " : " + x.score_total + "/25"),
-      ...lignes("Séances", se.data, "seances", (x) => dateFr(x.date) + " : " + (nomCat[x.categorie] || x.categorie) + ", " + x.duree_min + " min, RPE " + x.rpe + " = " + x.charge_ua + " UA")];
+      ...lignes("Séances", se.data, "seances", (x) => dateFr(x.date) + " : " + (x.categorie === "repos" ? "Repos" : libelleCategorie(x.categorie, x.detail) + ", " + x.duree_min + " min, RPE " + x.rpe + " = " + x.charge_ua + " UA"))];
     if (!te.error && typeof texteTest === "function") blocs.push(...lignes("Tests de forme", te.data, "tests", (x) => dateFr(x.date) + " : " + texteTest(x)));
     blocs.push(el("p", { class: "petit", text: "Une erreur de saisie ? Supprime la ligne, puis ressaisis-la. Pour le bien-être, tu peux aussi refaire la saisie du même jour : elle remplace la précédente." }));
     zone.replaceChildren(...blocs);

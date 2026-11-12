@@ -19,7 +19,11 @@ const SEUILS = {
   energieBasse: 2,       // énergie <= 2 pendant 3 saisies de suite : orange
   baisseRelative: 0.2,   // moyenne des 3 derniers jours inférieure de 20 % à la base : orange
   joursSansSaisie: 3,    // pas de bien-être depuis 3 jours : information
-  minJoursHistorique: 21,// ACWR calculé seulement après 3 semaines d'historique
+  minJoursHistorique: 21,// ACWR et monotonie calculés seulement après 3 semaines d'historique
+  monoJaune: 1.5,        // monotonie 1,5 à 2,0 : jaune (< 1,5 : vert)
+  monoOrange: 2.0,       // au-dessus de 2,0 : orange (repère de Foster, 1998)
+  monoRouge: 2.5,        // au-dessus de 2,5 : rouge
+  monoJoursCharges: 2,   // au moins 2 jours avec une charge sur les 7 derniers jours
   fenetreJours: 120      // période chargée pour les calculs et les graphiques
 };
 const COULEURS = { vert: "#1a8a3c", jaune: "#f2c200", orange: "#ff7f0a", rouge: "#e30613", bleu: "#4a7bd0", insuffisant: "#8a93a6" };
@@ -62,6 +66,27 @@ function acwrDuJour(map, jour, premiere) {
 }
 function premiereDate(seances) { let p = null; for (const s of seances) if (!p || s.date < p) p = s.date; return p; }
 
+/* ---------- Monotonie et tension (Foster, 1998) ---------- */
+// Monotonie = moyenne des charges quotidiennes des 7 derniers jours ÷ écart-type de ces 7 valeurs (jours de repos comptés à 0).
+// Tension = charge des 7 jours × monotonie. Une semaine très uniforme (peu de contraste entre jours durs, faciles et repos) donne une monotonie élevée.
+function niveauMonotonie(m) {
+  if (m > SEUILS.monoRouge) return "rouge";
+  if (m > SEUILS.monoOrange) return "orange";
+  if (m >= SEUILS.monoJaune) return "jaune";
+  return "vert";
+}
+function monotonieDuJour(map, jour, premiere) {
+  const v = [];
+  for (let i = 6; i >= 0; i--) v.push(map.get(jourPlus(jour, -i)) || 0);
+  const total = v.reduce((t, x) => t + x, 0), moyenne = total / 7, joursCharges = v.filter((x) => x > 0).length;
+  const histo = premiere ? ecartJours(premiere, jour) + 1 : 0;
+  const vide = { moyenne, ecartType: null, monotonie: null, tension: null, tensionRef: null, tensionEcart: null, joursCharges, niveau: "insuffisant" };
+  if (histo < SEUILS.minJoursHistorique || joursCharges < SEUILS.monoJoursCharges) return vide;
+  const ecartType = Math.sqrt(v.reduce((t, x) => t + (x - moyenne) * (x - moyenne), 0) / 6);   // écart-type d'échantillon (n − 1)
+  const monotonie = ecartType < 1e-9 ? 10 : Math.min(moyenne / ecartType, 10);
+  return { ...vide, ecartType, monotonie, tension: total * monotonie, niveau: niveauMonotonie(monotonie) };
+}
+
 /* ---------- Alertes et pistes de décision ---------- */
 const ORDRE_NIVEAU = { rouge: 4, orange: 3, jaune: 2, info: 1 };
 function analyser(seances, bienEtres, aujourdhui) {
@@ -90,6 +115,18 @@ function analyser(seances, bienEtres, aujourdhui) {
       fort ? "Hausse forte : vérifier qu'elle est voulue et envisager d'alléger les prochaines séances pour lisser la charge."
         : "Vérifier que cette hausse est prévue dans la planification ; sinon, lisser la charge sur la semaine.");
   }
+
+  // Monotonie et tension de la semaine, comparées aux 3 semaines précédentes
+  const premiere = premiereDate(seances);
+  const mono = monotonieDuJour(map, aujourdhui, premiere);
+  const tRef = [7, 14, 21].map((k) => monotonieDuJour(map, jourPlus(aujourdhui, -k), premiere).tension).filter((x) => x !== null);
+  if (mono.tension !== null && tRef.length >= 2) { mono.tensionRef = tRef.reduce((t, x) => t + x, 0) / tRef.length; mono.tensionEcart = mono.tensionRef > 0 ? mono.tension / mono.tensionRef - 1 : null; }
+  if (mono.niveau === "rouge") ajouter("rouge", "monotonie_rouge", "Monotonie très élevée : " + fr(mono.monotonie),
+    "La charge des 7 derniers jours est très uniforme : peu de contraste entre jours durs, faciles et repos.",
+    "Alterner clairement jours durs, jours faciles et un vrai jour de repos. Une charge monotone, surtout si elle est élevée, est associée dans la littérature (Foster, 1998) à plus de fatigue persistante et de maladies : surveiller sommeil, bien-être et HRV.");
+  else if (mono.niveau === "orange") ajouter("orange", "monotonie_orange", "Monotonie élevée : " + fr(mono.monotonie),
+    "La charge des 7 derniers jours manque de variation d'un jour à l'autre.",
+    "Varier les intensités et les volumes d'une séance à l'autre, et prévoir au moins un jour de repos ou de charge très faible dans la semaine.");
 
   const be = [...bienEtres].sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
   const dernier = be.length ? be[be.length - 1] : null;
@@ -130,7 +167,7 @@ function analyser(seances, bienEtres, aujourdhui) {
   }
   al.sort((x, y) => ORDRE_NIVEAU[y.niveau] - ORDRE_NIVEAU[x.niveau]);
   const niveau = al.some((x) => x.niveau === "rouge") ? "rouge" : al.some((x) => x.niveau === "orange") ? "orange" : al.some((x) => x.niveau === "jaune") ? "jaune" : "ok";
-  return { aujourdhui, acwr: a, charge7: a.aigue, precedente, rapport, dernier, alertes: al, niveau, map };
+  return { aujourdhui, acwr: a, charge7: a.aigue, precedente, rapport, mono, dernier, alertes: al, niveau, map };
 }
 
 /* ---------- Séries pour les graphiques ---------- */
@@ -147,6 +184,14 @@ function serieACWR(map, premiere, aujourdhui, n = 42) {
   for (let i = n - 1; i >= 0; i--) {
     const j = jourPlus(aujourdhui, -i), r = acwrDuJour(map, j, premiere);
     out.push({ lib: dateCourte(j), val: r.acwr === null ? null : Math.round(r.acwr * 100) / 100, niveau: r.niveau });
+  }
+  return out;
+}
+function serieMonotonie(map, premiere, aujourdhui, n = 42) {
+  const out = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const j = jourPlus(aujourdhui, -i), r = monotonieDuJour(map, j, premiere);
+    out.push({ lib: dateCourte(j), val: r.monotonie === null ? null : Math.round(Math.min(r.monotonie, 4) * 100) / 100, niveau: r.niveau });
   }
   return out;
 }
@@ -324,10 +369,12 @@ async function ecranSuivi(afficher, utilisateur, retour, vueStaff = false) {
       tuileChiffre("Vs semaine d'avant", an.rapport === null ? "–" : (an.rapport >= 1 ? "+" : "") + Math.round((an.rapport - 1) * 100) + " %", "semaine d'avant : " + an.precedente + " UA",
         an.rapport === null ? "" : an.rapport > SEUILS.hausseRouge ? "rouge" : an.rapport > SEUILS.hausseOrange ? "orange" : "vert"),
       tuileChiffre("Charge habituelle", fr(a.chronique, 0) + " UA", "moyenne par semaine sur 28 jours"),
+      tuileChiffre("Monotonie", fr(an.mono.monotonie), an.mono.niveau === "insuffisant" ? "pas assez de données" : { vert: "semaine variée", jaune: "à surveiller", orange: "élevée", rouge: "très élevée" }[an.mono.niveau], an.mono.niveau),
+      tuileChiffre("Tension", an.mono.tension === null ? "–" : Math.round(an.mono.tension) + " UA", an.mono.tensionEcart === null ? "charge 7 j × monotonie" : (an.mono.tensionEcart >= 0 ? "+" : "") + Math.round(an.mono.tensionEcart * 100) + " % vs 3 semaines d'avant"),
       tuileChiffre("Dernier bien-être", an.dernier ? an.dernier.score_total + "/25" : "–", an.dernier ? dateFr(an.dernier.date) : "aucune saisie", an.dernier ? niveauScore(an.dernier.score_total) : ""),
       tuileChiffre("Douleurs", an.dernier ? an.dernier.douleurs + "/5" : "–", "5 = aucune douleur", an.dernier ? (an.dernier.douleurs <= SEUILS.douleurRouge ? "rouge" : an.dernier.douleurs <= SEUILS.douleurOrange ? "orange" : "vert") : "")
     ]),
-    el("p", { class: "petit", text: "ACWR = charge des 7 derniers jours ÷ charge hebdomadaire moyenne des 28 derniers jours (charge = durée × RPE). Il faut au moins 3 semaines de saisies. Repères de discussion, pas un diagnostic ni une prédiction de blessure." })
+    el("p", { class: "petit", text: "ACWR = charge des 7 derniers jours ÷ charge hebdomadaire moyenne des 28 derniers jours (charge = durée × RPE). Il faut au moins 3 semaines de saisies. Monotonie = charge quotidienne moyenne des 7 derniers jours ÷ son écart-type (jours de repos comptés à 0) : plus elle monte, plus la semaine est uniforme. Tension = charge des 7 jours × monotonie. Repères de discussion, pas un diagnostic ni une prédiction de blessure." })
   ]));
 
   // Alertes
@@ -347,6 +394,14 @@ async function ecranSuivi(afficher, utilisateur, retour, vueStaff = false) {
       { de: 1.3, a: 1.5, couleur: "#fff0de" }, { de: 1.5, a: 2.5, couleur: "#fde3e5" }
     ]
   }, [{ couleur: COULEURS.orange, texte: "< 0,8 bas" }, { couleur: COULEURS.vert, texte: "0,8 à 1,3" }, { couleur: COULEURS.orange, texte: "1,3 à 1,5" }, { couleur: COULEURS.rouge, texte: "> 1,5" }]));
+
+  ecran.push(graphLigne("Monotonie de la charge (6 dernières semaines, glissante sur 7 jours)", serieMonotonie(an.map, premiere, aujourdhui), {
+    min: 0, max: 4, graduations: [0, 1.5, 2, 2.5, 4], decimales: 2,
+    bandes: [
+      { de: 0, a: 1.5, couleur: "#e3f4e8" }, { de: 1.5, a: 2, couleur: "#fff9db" },
+      { de: 2, a: 2.5, couleur: "#fff0de" }, { de: 2.5, a: 4, couleur: "#fde3e5" }
+    ]
+  }, [{ couleur: COULEURS.vert, texte: "< 1,5 variée" }, { couleur: COULEURS.jaune, texte: "1,5 à 2,0" }, { couleur: COULEURS.orange, texte: "2,0 à 2,5" }, { couleur: COULEURS.rouge, texte: "> 2,5" }]));
 
   const zoneBE = el("div");
   const selIndic = el("select", { id: "indic" }, [
@@ -394,7 +449,7 @@ function boutonExport(texte, action) {
 }
 
 const COLONNES_EXPORT = {
-  seances: [["date", "Date"], ["sport", "Sport"], ["categorie", "Type de séance"], ["duree_min", "Durée (min)"], ["rpe", "RPE"], ["charge_ua", "Charge (UA)"], ["volume_course_m", "Volume course (m)"], ["commentaire", "Commentaire"]],
+  seances: [["date", "Date"], ["sport", "Sport"], ["categorie", "Type de séance"], ["detail", "Précision"], ["duree_min", "Durée (min)"], ["rpe", "RPE"], ["charge_ua", "Charge (UA)"], ["volume_course_m", "Volume course (m)"], ["commentaire", "Commentaire"]],
   bien_etre: [["date", "Date"], ["sommeil", "Sommeil"], ["energie", "Énergie"], ["douleurs", "Douleurs"], ["stress", "Stress"], ["humeur", "Humeur"], ["score_total", "Score total"], ["commentaire", "Commentaire"]],
   cycle_menstruel: [["date", "Date"], ["phase", "Phase"], ["gene_symptomes", "Gêne (5 = aucune)"]],
   tests: [["date", "Date"], [(l) => LIB_TESTS[l.type_test] || l.type_test, "Test"], ["valeur", "Résultat (CMJ cm · RMSSD ms · sprint s)"],
@@ -467,7 +522,7 @@ async function ecranTableauStaff(profil, forcer = false) {
       const b = el("button", { type: "button", class: "ligne-athlete niv-" + an.niveau }, [
         el("div", { class: "ligne-haut" }, [el("strong", { text: x.nom || "Sans nom" }), pastilleNiveau(an.acwr.niveau, "ACWR " + fr(an.acwr.acwr))]),
         el("div", { class: "petit", text: [x.groupe, x.sport_principal].filter(Boolean).join(" · ") }),
-        el("div", { class: "petit", text: "7 j : " + an.charge7 + " UA · bien-être " + (an.dernier ? an.dernier.score_total + "/25 (" + dateFr(an.dernier.date) + ")" : "aucune saisie") + (an.tests && an.tests.resume ? " · " + an.tests.resume : "") + (nbAl ? " · " + nbAl + " alerte(s)" : "") })
+        el("div", { class: "petit", text: "7 j : " + an.charge7 + " UA · monotonie " + fr(an.mono.monotonie) + " · bien-être " + (an.dernier ? an.dernier.score_total + "/25 (" + dateFr(an.dernier.date) + ")" : "aucune saisie") + (an.tests && an.tests.resume ? " · " + an.tests.resume : "") + (nbAl ? " · " + nbAl + " alerte(s)" : "") })
       ]);
       b.addEventListener("click", () => ecranSuivi(x, profil, () => ecranTableauStaff(profil), true));
       return b;
@@ -520,6 +575,7 @@ async function ecranTableauStaff(profil, forcer = false) {
         [(l) => l.x.nom, "Athlète"], [(l) => l.x.groupe, "Groupe"], [(l) => l.x.sport_principal, "Sport"],
         [(l) => (l.an.acwr.acwr === null ? "" : Math.round(l.an.acwr.acwr * 100) / 100), "ACWR"], [(l) => l.an.acwr.niveau, "Niveau ACWR"],
         [(l) => l.an.charge7, "Charge 7 j (UA)"], [(l) => Math.round(l.an.acwr.chronique), "Charge hebdo moyenne 28 j (UA)"],
+        [(l) => (l.an.mono.monotonie === null ? "" : Math.round(l.an.mono.monotonie * 100) / 100), "Monotonie"], [(l) => l.an.mono.niveau, "Niveau monotonie"], [(l) => (l.an.mono.tension === null ? "" : Math.round(l.an.mono.tension)), "Tension (UA)"],
         [(l) => (l.an.dernier ? l.an.dernier.score_total : ""), "Dernier bien-être (/25)"], [(l) => (l.an.dernier ? l.an.dernier.date : ""), "Date dernier bien-être"],
         [(l) => l.an.alertes.map((a) => a.titre).join(" | "), "Alertes"]]));
     }),
