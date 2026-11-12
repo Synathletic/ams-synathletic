@@ -550,7 +550,7 @@ const TYPES_COLLECTIF = [
   ["physique", "Physique", [["force", "Force"], ["puissance_plyo", "Puissance / pliométrie"], ["vitesse", "Vitesse"], ["endurance_continue", "Endurance continue"], ["endurance_intermittente", "Endurance intermittente"], ["mobilite_gainage", "Mobilité / gainage"]]],
   ["technique", "Technique", DETAIL_TECHNIQUE],
   ["tactique", "Tactique (collectif sans opposition)", [["schemas", "Schémas"], ["systemes", "Systèmes"], ["phases_arretees", "Coups de pied arrêtés / phases arrêtées"]]],
-  ["opposition", "Opposition", DETAIL_TECHNIQUE],
+  ["opposition", "Opposition", []],
   ["match_competition", "Match / compétition", [["officiel", "Officiel"], ["amical", "Amical"]]],
   ["evaluation", "Évaluation", [["tests_physiques", "Tests physiques"], ["bilan_technique", "Bilan technique"]]],
   ["recuperation", "Récupération", [["active", "Active"], ["soins", "Soins"], ["etirements", "Étirements"]]],
