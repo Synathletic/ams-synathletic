@@ -403,6 +403,24 @@ function ecranAccueil(profil) {
     );
   }
 
+  // Changer son mot de passe (utile quand le staff a créé le compte avec un mot de passe provisoire)
+  const mdpNouveau = el("input", { id: "nv-mdp", type: "password", autocomplete: "new-password", minlength: "8", placeholder: "Nouveau mot de passe (8 caractères minimum)" });
+  const mdpConfirm = el("input", { id: "nv-mdp2", type: "password", autocomplete: "new-password", minlength: "8", placeholder: "Retape le nouveau mot de passe" });
+  const btnMdp = el("button", { class: "btn btn-secondaire", type: "button", text: "Changer mon mot de passe", onclick: async () => {
+    const a1 = mdpNouveau.value, a2 = mdpConfirm.value;
+    if (a1.length < 8) return afficherMessage("Le mot de passe doit contenir au moins 8 caractères.", "erreur");
+    if (a1 !== a2) return afficherMessage("Les deux mots de passe ne sont pas identiques.", "erreur");
+    btnMdp.disabled = true;
+    try {
+      const { error } = await sb.auth.updateUser({ password: a1 });
+      if (error) throw error;
+      mdpNouveau.value = ""; mdpConfirm.value = "";
+      afficherMessage("Mot de passe modifié. Utilise-le à ta prochaine connexion.", "succes");
+    } catch (err) { afficherMessage(messageErreur(err), "erreur"); }
+    btnMdp.disabled = false;
+  }});
+  reglages.append(el("h3", { text: "Mon mot de passe" }), mdpNouveau, mdpConfirm, btnMdp, el("div", { style: "height:14px" }));
+
   const btnRetrait = el("button", { class: "btn btn-danger", type: "button", text: "Retirer mon consentement", onclick: async () => {
     if (!confirm("Retirer ton consentement ? Tu ne pourras plus saisir de données tant que tu n'auras pas accepté à nouveau. Pour supprimer tes données, contacte Syn'Athlétic.")) return;
     try {

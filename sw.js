@@ -1,7 +1,7 @@
 // Service worker Athlete Monitoring System Syn'Athlétic : met en cache l'interface (pas les données de santé).
 // Les appels à Supabase ne sont JAMAIS mis en cache.
 // Changer le numéro de version ci-dessous à chaque mise à jour de l'application.
-const VERSION = "ams-v6-7";
+const VERSION = "ams-v6-8";
 const FICHIERS = [
   "./", "index.html", "style.css", "config.js", "suivi.js", "tests.js", "equipe.js", "app.js",
   "logo.png", "icon-192.png", "manifest.json"
